@@ -1,6 +1,7 @@
 """main loop keeps running when one round blows up."""
 import sqlite3
 
+import config
 import main
 from session_log import SessionLog
 
@@ -58,7 +59,7 @@ def test_unexpected_error_is_reported_with_traceback(monkeypatch, tmp_path, caps
 
 
 # --------------------------------------------------------------- Round 2
-MOCK_R2 = ["--mock", "--round", "2", "--mock-delay", "0", "--no-audio"]
+MOCK_R2 = ["--mock", "--legacy-rounds", "--round", "2", "--mock-delay", "0", "--no-audio"]
 
 
 def _result_lines(rounds, seed, round_id):
@@ -121,7 +122,7 @@ def test_mismatched_round_result_is_scored_as_its_own_round(monkeypatch, tmp_pat
     monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
     db = tmp_path / "s.db"
     main.main(MOCK_R2 + ["--db", str(db)])
-    assert "Round 1 result while Round 2 is selected" in capsys.readouterr().out
+    assert "Round 1: Reflex result while Round 2 [legacy]: Steady Hands is selected" in capsys.readouterr().out
     with SessionLog(db) as log:
         (row,) = log.rounds()
     assert row["round_id"] == 1 and row["actual_ms"] == 300
@@ -134,7 +135,7 @@ def test_calibrate_prints_raw_mg_and_never_scores_or_logs(monkeypatch, tmp_path,
     monkeypatch.setattr(main, "deliver_verdict", boom)
     monkeypatch.setattr(main, "process_reading", boom)
     db = tmp_path / "never.db"
-    assert main.main(["--mock", "--calibrate", "--rounds", "6", "--seed", "4",
+    assert main.main(["--mock", "--calibrate", "--legacy-rounds", "--round", "2", "--rounds", "6", "--seed", "4",
                       "--mock-delay", "0", "--db", str(db)]) == 0
     out = capsys.readouterr().out
     good = [r for r in _result_lines(6, 4, 2) if not main.is_sensor_error(r)]
@@ -148,7 +149,7 @@ def test_calibrate_prints_raw_mg_and_never_scores_or_logs(monkeypatch, tmp_path,
 def test_calibrate_ignores_round_1_results(monkeypatch, capsys):
     lines = ['{"type":"result","round_id":1,"claim":50,"actual":300}']
     monkeypatch.setattr(main, "mock_lines", lambda *a, **k: iter(lines))
-    assert main.main(["--mock", "--calibrate"]) == 0
+    assert main.main(["--mock", "--calibrate", "--legacy-rounds", "--round", "2"]) == 0
     out = capsys.readouterr().out
     assert "ignoring a Round 1 result" in out and "No Round 2 holds recorded" in out
 
@@ -169,8 +170,24 @@ def test_round_flag_selects_mock_round(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "mock_lines", fake_mock)
     main.main(["--mock", "--db", str(tmp_path / "a.db")])
     assert seen["round"] == 1
-    main.main(["--mock", "--round", "2", "--db", str(tmp_path / "a.db")])
+    main.main(["--mock", "--legacy-rounds", "--round", "2", "--db", str(tmp_path / "a.db")])
     assert seen["round"] == 2
+
+
+def test_cut_rounds_need_the_legacy_flag(capsys):
+    import pytest
+    with pytest.raises(SystemExit):
+        main.main(["--mock", "--round", "2"])
+    assert "--legacy-rounds" in capsys.readouterr().err
+    assert config.GAME_ROUNDS == (1, 5, 6) and config.LEGACY_ROUNDS == (2,)
+    assert config.ROUND_LABELS == {1: 1, 5: 2, 6: 3}
+
+
+def test_round_titles_use_the_game_numbering():
+    assert main.round_title(1) == "Round 1: Reflex"
+    assert main.round_title(5) == "Round 2: Poker Face"
+    assert main.round_title(6) == "Round 3: Straight Face"
+    assert main.round_title(2) == "Round 2 [legacy]: Steady Hands"
 
 
 def _r2(seq, actual):

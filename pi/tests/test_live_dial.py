@@ -265,7 +265,7 @@ def test_serial_lines_calls_on_open_each_time_the_port_opens(monkeypatch):
 def test_main_clears_the_dial_when_the_serial_port_reopens(monkeypatch, tmp_path):
     calls = []
 
-    def fake_serial(port, baud, round_id, on_open=None):
+    def fake_serial(port, baud, round_id, on_open=None, link=None):
         on_open()
         yield dial_line(40)
         on_open()                                    # reconnected (maybe a different sketch)
@@ -372,7 +372,7 @@ def test_calibrate_ignores_dial_lines(monkeypatch, capsys):
         dial_line(36),
     ]
     monkeypatch.setattr(main, "mock_lines", lambda *a, **k: iter(lines))
-    assert main.main(["--mock", "--calibrate", "--ui"]) == 0
+    assert main.main(["--mock", "--calibrate", "--ui", "--legacy-rounds", "--round", "2"]) == 0
     out, err = capsys.readouterr()
     assert "calib #1" in out and "1 hold(s)" in out
     assert '"dial"' not in out + err and "ignoring" not in out + err
@@ -391,3 +391,59 @@ def test_mock_ui_passes_dial_step_only_with_ui(monkeypatch, tmp_path):
     main.main(["--mock", "--db", str(tmp_path / "a.db")])
     main.main(["--mock", "--db", str(tmp_path / "a.db"), "--ui", "--ui-host", "127.0.0.1", "--ui-port", "0"])
     assert calls == [{}, {"dial_step_s": config.UI_MOCK_DIAL_STEP_S}]
+
+
+# ------------------------------------------------------------------ Round 5 (Poker Face)
+def test_poker_claim_parser_ignores_dial_lines():
+    from poker_round import parse_claim
+    assert parse_claim(dial_line(57)) is None
+    assert main.parse_dial('{"type":"claim","round_id":5,"seq":1,"claim":72}') is None
+
+
+def test_plain_poker_mock_has_no_dial_lines():
+    lines = list(main.mock_lines(4, 3, 0, 5))
+    assert not any(main.parse_dial(ln) is not None for ln in lines)
+
+
+def test_poker_mock_with_dial_turns_to_the_claim():
+    from poker_round import parse_claim
+    lines = list(main.mock_lines(3, 3, 0, 5, dial_step_s=0))
+    plain = list(main.mock_lines(3, 3, 0, 5))
+    last = None
+    claims = []
+    for ln in lines:
+        d = main.parse_dial(ln)
+        if d is not None:
+            last = d
+        c = parse_claim(ln)
+        if c is not None:
+            assert c["claim"] == last
+            claims.append(c["claim"])
+    assert claims == [parse_claim(x)["claim"] for x in plain if parse_claim(x)]
+
+
+def test_poker_armed_dial_then_claim_line(clock):
+    s = GameState(clock=clock)
+    s.session_started("Saim", 5, "sess")
+    s.on_status({"type": "status", "state": "mode", "round_id": 5})
+    s.dial(66)
+    assert s.snapshot()["activeRound"]["round_id"] == "poker_face"
+    assert s.snapshot()["liveClaim"] == 66
+    s.on_status({"type": "status", "state": "locked", "claim": 67})
+    s.claim_locked(5, 67)
+    snap = s.snapshot()
+    assert snap["screen"] == "performing" and snap["liveClaim"] == 67
+
+
+def test_poker_calibrate_ignores_dial_lines(monkeypatch, capsys):
+    lines = [
+        '{"type":"status","state":"mode","round_id":5,"accel":"none"}',
+        dial_line(40), dial_line(70),
+        '{"type":"status","state":"locked","claim":70}',
+        '{"type":"claim","round_id":5,"seq":1,"claim":70}',
+        dial_line(71),
+    ]
+    monkeypatch.setattr(main, "mock_lines", lambda *a, **k: iter(lines))
+    assert main.main(["--mock", "--round", "5", "--calibrate", "--no-audio"]) == 0
+    out, err = capsys.readouterr()
+    assert '"dial"' not in out + err and "ignoring" not in out + err

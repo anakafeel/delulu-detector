@@ -8,9 +8,13 @@ import config
 
 ROUND_REFLEX = 1
 ROUND_STEADY = 2
+ROUND_POKER = 5
+ROUND_STRAIGHT = 6     # The Tell's Round 3: Straight Face Under Pressure
 
-# Unit string each round's "actual" value is reported in (matches the Arduino's "unit" field).
-ROUND_UNITS = {ROUND_REFLEX: "ms", ROUND_STEADY: "mg_rms"}
+# Unit string each round's "actual" value is reported in (matches the Arduino's "unit" field;
+# Rounds 5 and 6 are measured on the Pi: smile_frac as a percent / seconds held).
+ROUND_UNITS = {ROUND_REFLEX: "ms", ROUND_STEADY: "mg_rms", ROUND_POKER: "smile_pct",
+               ROUND_STRAIGHT: "s"}
 
 
 def clamp(value: float, lo: float = 0.0, hi: float = 100.0) -> float:
@@ -47,6 +51,38 @@ def tremor_mg_to_performance(
     return clamp(fraction * 100.0)
 
 
+def smile_frac_to_performance(
+    smile_frac: float,
+    best_frac: Optional[float] = None,
+    worst_frac: Optional[float] = None,
+) -> float:
+    """Map Round 5 smile_frac (0-1) to 0-100. best_frac or less = 100, worst_frac or more = 0.
+
+    Bounds default to config.POKER_BEST_FRAC / POKER_WORST_FRAC, read at call time
+    (to be calibrated on hardware, and pinned by the tests).
+    """
+    best_frac = config.POKER_BEST_FRAC if best_frac is None else best_frac
+    worst_frac = config.POKER_WORST_FRAC if worst_frac is None else worst_frac
+    if worst_frac <= best_frac:
+        raise ValueError("worst_frac must be greater than best_frac")
+    fraction = (worst_frac - smile_frac) / (worst_frac - best_frac)
+    return clamp(fraction * 100.0)
+
+
+def held_s_to_performance(held_s: float, max_s: Optional[float] = None) -> float:
+    """Straight Face: seconds held -> 0-100 on the same scale as the claim (0 s = 0, max_s = 100)."""
+    max_s = config.STRAIGHT_MAX_S if max_s is None else max_s
+    if max_s <= 0:
+        raise ValueError("max_s must be positive")
+    return clamp(float(held_s) / max_s * 100.0)
+
+
+def claim_to_seconds(claim: float, max_s: Optional[float] = None) -> float:
+    """Straight Face: the dial's 0-100 claim as seconds (0-STRAIGHT_MAX_S)."""
+    max_s = config.STRAIGHT_MAX_S if max_s is None else max_s
+    return clamp(float(claim)) / 100.0 * max_s
+
+
 def compute_gap(claim: float, performance: float) -> float:
     """gap = |claimed_confidence_normalized - actual_performance_normalized| on a 0-100 scale."""
     return abs(clamp(claim) - clamp(performance))
@@ -77,7 +113,7 @@ class RoundResult:
     score: int                     # 0-100; always config.FAILED_ROUND_SCORE for a false start / timeout
     tier: str                      # "validated" | "mild" | "spicy" | "delulu" | "false_start" | "timeout"
     direction: str                 # "over" (claimed more than delivered), "under", "spot_on", or "n/a"
-    unit: str = "ms"               # "ms" (Round 1) or "mg_rms" (Round 2)
+    unit: str = "ms"               # "ms" (1), "mg_rms" (2), "smile_pct" (5) or "s" (6, seconds held)
     extra: dict = field(default_factory=dict)   # round-specific raw extras, e.g. {"peak": 61.2, "samples": 500}
 
     @property
@@ -161,6 +197,74 @@ def score_steady_round(
     return _scored_result(ROUND_STEADY, claim_i, tremor, "mg_rms", performance, extra)
 
 
+def score_poker_round(
+    claim: float,
+    smile_frac: float,
+    face_frac: Optional[float] = None,
+    frames: Optional[int] = None,
+    fps: Optional[float] = None,
+    first_smile_ms: Optional[int] = None,
+) -> RoundResult:
+    """Turn one Round-5 window (smile_frac = smiling face frames / face frames) into a RoundResult.
+
+    actual = smile_frac * 100 (unit "smile_pct"); the other readings go to extra.
+    A window without enough face ("no_face") or without frames is not scored: the
+    caller filters it out, and a missing smile_frac raises ValueError here.
+    """
+    if smile_frac is None:
+        raise ValueError("Round 5 needs a smile_frac; no_face / camera errors are not scored")
+    claim_i = int(round(clamp(float(claim))))
+    frac = max(0.0, min(1.0, float(smile_frac)))
+    performance = smile_frac_to_performance(frac)
+    extra: dict = {"smile_frac": round(frac, 4)}
+    if face_frac is not None:
+        extra["face_frac"] = round(float(face_frac), 4)
+    if frames is not None:
+        extra["frames"] = int(frames)
+    if fps is not None:
+        extra["fps"] = round(float(fps), 1)
+    extra["first_smile_ms"] = None if first_smile_ms is None else int(first_smile_ms)
+    return _scored_result(ROUND_POKER, claim_i, round(frac * 100.0, 2), "smile_pct", performance, extra)
+
+
+def score_straight_round(
+    claim: float,
+    held_s: float,
+    broke: Optional[bool] = None,
+    trigger: Optional[str] = None,
+    face_frac: Optional[float] = None,
+    frames: Optional[int] = None,
+    fps: Optional[float] = None,
+    max_s: Optional[float] = None,
+) -> RoundResult:
+    """Straight Face (id 6): seconds held until the face changed -> RoundResult.
+
+    The claim (0-100) stands for 0-max_s seconds, and so does the performance, so
+    gap = |claim - held / max_s * 100| (claim 50 = 10 s with the default 20 s).
+    actual = seconds held (unit "s"). no_face / camera errors are not scored: the
+    caller filters them out, and a missing held_s raises ValueError here.
+    """
+    if held_s is None:
+        raise ValueError("Straight Face needs held_s; no_face / camera errors are not scored")
+    max_s = config.STRAIGHT_MAX_S if max_s is None else float(max_s)
+    claim_i = int(round(clamp(float(claim))))
+    held = max(0.0, min(max_s, float(held_s)))
+    performance = held_s_to_performance(held, max_s)
+    extra: dict = {"held_s": round(held, 2), "max_s": max_s,
+                   "claim_s": round(claim_to_seconds(claim_i, max_s), 1)}
+    if broke is not None:
+        extra["broke"] = bool(broke)
+    if trigger is not None:
+        extra["trigger"] = str(trigger)
+    if face_frac is not None:
+        extra["face_frac"] = round(float(face_frac), 4)
+    if frames is not None:
+        extra["frames"] = int(frames)
+    if fps is not None:
+        extra["fps"] = round(float(fps), 1)
+    return _scored_result(ROUND_STRAIGHT, claim_i, round(held, 2), "s", performance, extra)
+
+
 def score_reading(reading: dict) -> RoundResult:
     """Score a parsed serial result (see main.parse_line) for any supported round."""
     round_id = reading["round_id"]
@@ -178,5 +282,29 @@ def score_reading(reading: dict) -> RoundResult:
             tremor_mg=reading.get("actual"),
             peak_mg=reading.get("peak"),
             samples=reading.get("samples"),
+        )
+    if round_id == ROUND_POKER:
+        frac = reading.get("smile_frac")
+        if frac is None and reading.get("actual") is not None:
+            frac = float(reading["actual"]) / 100.0
+        return score_poker_round(
+            claim=reading["claim"],
+            smile_frac=frac,
+            face_frac=reading.get("face_frac"),
+            frames=reading.get("frames"),
+            fps=reading.get("fps"),
+            first_smile_ms=reading.get("first_smile_ms"),
+        )
+    if round_id == ROUND_STRAIGHT:
+        held = reading.get("held_s", reading.get("actual"))
+        return score_straight_round(
+            claim=reading["claim"],
+            held_s=held,
+            broke=reading.get("broke"),
+            trigger=reading.get("trigger"),
+            face_frac=reading.get("face_frac"),
+            frames=reading.get("frames"),
+            fps=reading.get("fps"),
+            max_s=reading.get("max_s"),
         )
     raise ValueError(f"unsupported round_id {round_id}")

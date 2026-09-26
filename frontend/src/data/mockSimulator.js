@@ -2,7 +2,7 @@
 // something realistic to render before real hardware/serial data exists.
 // Nothing in this file is part of the real data contract — see dataSource.js
 // for the one place that gets swapped out when a live source exists.
-import { ROUND_DEFS } from './roundDefs'
+import { GAME_ROUNDS } from './roundDefs'
 import { mockVerdict } from './verdicts'
 
 const PLAYER_NAMES = [
@@ -46,8 +46,8 @@ function deriveRaw(roundId, actualNormalized) {
       return Math.round(((100 - actualNormalized) / 100) * 40) // cm
     case 'poker_face':
       return +(40 - (actualNormalized / 100) * 37).toFixed(1) // % smiling (3% = 100, 40% = 0)
-    case 'straight_face_timer':
-      return +((actualNormalized / 100) * 60).toFixed(1) // s held
+    case 'straight_face':
+      return +((actualNormalized / 100) * 20).toFixed(1) // s held (dial 100 = 20 s)
     default:
       return actualNormalized
   }
@@ -102,7 +102,8 @@ class MockSimulator {
     const count =
       ROUNDS_PER_SESSION_MIN +
       Math.floor(Math.random() * (ROUNDS_PER_SESSION_MAX - ROUNDS_PER_SESSION_MIN + 1))
-    this.roundQueue = shuffle(ROUND_DEFS).slice(0, count)
+    // The Tell plays its rounds in order (1, 2, 3), then a random bonus one.
+    this.roundQueue = [...GAME_ROUNDS, ...shuffle(GAME_ROUNDS)].slice(0, count)
     this.sessionGapBias = 45 + Math.random() * 25
     this._beginPredicting()
   }

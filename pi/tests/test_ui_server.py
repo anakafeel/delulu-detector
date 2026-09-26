@@ -45,7 +45,8 @@ def test_starts_idle_with_frontend_shape(state):
         assert key in snap
     assert snap["player"] == "Saim"
     assert snap["history"] == []
-    assert snap["selectedRound"] == {"round_id": "reflex", "round_type_id": 1, "round_name": "Reflex"}
+    assert snap["selectedRound"] == {"round_id": "reflex", "round_type_id": 1, "round_name": "Reflex",
+                                   "round_label": 1}
     json.dumps(snap, allow_nan=False)
 
 
@@ -476,7 +477,7 @@ def test_main_mock_steady_sensor_error_reaches_the_ui(monkeypatch, tmp_path):
                         lambda self, msg: rejected.append(msg))
     monkeypatch.setattr(main, "linger_for_ui", lambda srv: None)
     # seed 1 on Round 2 includes an accelerometer hiccup (error result) within 4 rounds
-    main.main(["--mock", "--round", "2", "--rounds", "4", "--seed", "1", "--mock-delay", "0",
+    main.main(["--mock", "--legacy-rounds", "--round", "2", "--rounds", "4", "--seed", "1", "--mock-delay", "0",
                "--no-audio", "--db", str(tmp_path / "s.db"), "--ui", "--ui-host", "127.0.0.1",
                "--ui-port", "0"])
     assert rejected and all("accel_read" in m for m in rejected)
@@ -488,3 +489,48 @@ def test_main_without_ui_starts_no_server(monkeypatch, tmp_path):
                         lambda self: pytest.fail("server started without --ui"))
     assert main.main(["--mock", "--rounds", "1", "--mock-delay", "0", "--no-audio",
                       "--db", str(tmp_path / "s.db")]) == 0
+
+
+# ------------------------------------------------------------- Round 5 (Poker Face)
+def test_main_mock_poker_face_shows_claim_then_smile_result(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    claims, results = [], []
+    real_claim, real_result = ui_server.GameState.claim_locked, ui_server.GameState.round_result
+
+    def spy_claim(self, round_id, claim):
+        real_claim(self, round_id, claim)
+        claims.append(self.snapshot())
+
+    def spy_result(self, *a, **k):
+        real_result(self, *a, **k)
+        results.append(self.snapshot())
+
+    monkeypatch.setattr(ui_server.GameState, "claim_locked", spy_claim)
+    monkeypatch.setattr(ui_server.GameState, "round_result", spy_result)
+    monkeypatch.setattr(main, "linger_for_ui", lambda srv: None)
+    assert main.main(["--mock", "--round", "5", "--rounds", "2", "--seed", "3", "--mock-delay", "0",
+                      "--no-audio", "--db", str(tmp_path / "s.db"), "--ui", "--ui-host", "127.0.0.1",
+                      "--ui-port", "0"]) == 0
+    assert claims and claims[0]["screen"] == "performing"
+    assert claims[0]["activeRound"]["round_id"] == "poker_face"
+    assert isinstance(claims[0]["liveClaim"], int)
+    assert results, "no Round 5 result reached the UI"
+    r = results[-1]["latestResult"]
+    assert r["round_key"] == "poker_face" and r["round_type_id"] == 5
+    assert r["actual_unit"] == "smile_pct" and 0 <= r["actual_raw"] <= 100
+    assert results[-1]["screen"] == "reveal"
+
+
+def test_poker_vision_failure_reaches_the_ui_as_a_notice(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    monkeypatch.setattr(main, "linger_for_ui", lambda srv: None)
+    monkeypatch.setattr(main, "run_face_claim", lambda claim, poker, selected: None)
+    rejected = []
+    monkeypatch.setattr(ui_server.GameState, "round_rejected", lambda self, msg: rejected.append(msg))
+    main.main(["--mock", "--round", "5", "--rounds", "1", "--mock-delay", "0", "--no-audio",
+               "--db", str(tmp_path / "s.db"), "--ui", "--ui-host", "127.0.0.1", "--ui-port", "0"])
+    assert rejected and "Camera / vision error" in rejected[0]

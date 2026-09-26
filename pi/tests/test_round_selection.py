@@ -17,8 +17,11 @@ READY = '{"type":"status","state":"ready"}\r\n'   # per-round ready (Round 1 for
 def test_selection_line_bytes():
     assert selection_line(1) == b"R1\n"
     assert selection_line(2) == b"R2\n"
+    assert selection_line(5) == b"R5\n"
     with pytest.raises(ValueError):
-        selection_line(3)
+        selection_line(3)                          # Round 3 is parked
+    with pytest.raises(ValueError):
+        selection_line(4)
 
 
 class _Clock:
@@ -133,3 +136,52 @@ def test_serial_lines_reselects_after_a_board_reset(monkeypatch):
 
 def test_default_round_is_1():
     assert config.DEFAULT_ROUND == 1
+
+
+# --------------------------------------------------------------- Round 5
+ACK_R5 = '{"type":"status","state":"mode","round_id":5,"accel":"none"}\r\n'
+
+
+def test_window_line():
+    from poker_round import window_line
+    assert window_line(6.0) == b"W6000\n"
+    assert window_line(1) == b"W1000\n" and window_line(30) == b"W30000\n"
+    assert window_line() == f"W{int(config.POKER_WINDOW_S * 1000)}\n".encode()
+    for bad in (0.5, 31, -1):
+        with pytest.raises(ValueError):
+            window_line(bad)
+
+
+def test_followup_is_sent_once_per_ack():
+    sel, clock = _selector(5, followup=b"W6000\n")
+    assert sel.start() == b"R5\n"
+    assert sel.on_line(ACK_R5) == b"W6000\n" and sel.acked
+    assert sel.on_line(ACK_R5) is None             # duplicate ack: no second W
+    assert sel.on_line(BOOT) == b"R5\n"            # board reset
+    assert sel.on_line(ACK_R5) == b"W6000\n"       # window re-sent after the new ack
+    clock.t += 60
+    assert sel.on_idle() is None
+
+
+def test_rounds_1_and_2_have_no_followup():
+    for rid, ack in ((1, ACK_R1), (2, ACK_R2)):
+        sel, _ = _selector(rid)
+        sel.start()
+        assert sel.on_line(ack) is None
+
+
+def test_serial_lines_round_5_selects_and_sets_the_window(monkeypatch):
+    monkeypatch.setattr(config, "SERIAL_OPEN_SETTLE_S", 0)
+    monkeypatch.setattr(config, "POKER_WINDOW_S", 4.5)
+    claim = '{"type":"claim","round_id":5,"seq":1,"claim":72}\n'
+    port = _FakeSerialPort([ACK_R5, '{"type":"status","state":"window","window_ms":4500}\n', claim,
+                            BOOT, ACK_R5])
+    gen = main.serial_lines("/dev/fake", 115200, 5, serial_module=_fake_serial_module(port))
+    got = list(itertools.islice(gen, 5))
+    assert port.writes == [b"R5\n", b"W4500\n", b"R5\n", b"W4500\n"]
+    assert got[2] == claim
+
+
+def test_round_flag_accepts_5_and_rejects_3():
+    with pytest.raises(SystemExit):
+        main.main(["--mock", "--round", "3"])
