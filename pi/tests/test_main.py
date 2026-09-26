@@ -171,3 +171,60 @@ def test_round_flag_selects_mock_round(monkeypatch, tmp_path):
     assert seen["round"] == 1
     main.main(["--mock", "--round", "2", "--db", str(tmp_path / "a.db")])
     assert seen["round"] == 2
+
+
+def _r2(seq, actual):
+    return ('{"type":"result","round_id":2,"seq":%d,"claim":100,"actual":%s,"unit":"mg_rms",'
+            '"peak":40.0,"samples":500,"false_start":false,"timeout":false}' % (seq, actual))
+
+
+def test_resting_sensor_is_rejected_in_play_not_logged(monkeypatch, tmp_path, capsys):
+    import config
+    monkeypatch.setattr(config, "STEADY_REST_MG", 30.0)
+    monkeypatch.setattr(config, "STEADY_BEST_MG", 35.0)
+    monkeypatch.setattr(config, "STEADY_WORST_MG", 500.0)
+    lines = [_r2(1, "21.0"), _r2(2, "68.0")]   # table hold, then a real steady hand
+    monkeypatch.setattr(main, "mock_lines", lambda *a, **k: iter(lines))
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    db = tmp_path / "s.db"
+    assert main.main(MOCK_R2 + ["--db", str(db)]) == 0
+    err = capsys.readouterr().err
+    assert "[rejected] Round 2 tremor 21.0 mg RMS" in err and "Not scored or logged" in err
+    with SessionLog(db) as log:
+        (row,) = log.rounds()
+    assert row["actual"] == 68.0 and row["performance"] < 100
+
+
+def test_resting_hold_still_shows_in_calibrate(monkeypatch, capsys):
+    import config
+    monkeypatch.setattr(config, "STEADY_REST_MG", 30.0)
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    main._run_calibration(iter([_r2(1, "21.0")]), 2)
+    out = capsys.readouterr().out
+    assert "21.0" in out and "[rejected]" not in out
+
+
+def test_is_resting_edges(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "STEADY_REST_MG", 30.0)
+    assert main.is_resting({"round_id": 2, "actual": 29.9})
+    assert not main.is_resting({"round_id": 2, "actual": 30.0})
+    assert not main.is_resting({"round_id": 2, "actual": None, "error": "no_accel"})
+    assert not main.is_resting({"round_id": 1, "actual": 5.0})
+
+
+def test_non_finite_values_are_ignored_not_scored():
+    for bad in ("NaN", "Infinity", "-Infinity"):
+        assert main.parse_line(_r2(1, bad)) is None
+        assert main.parse_line('{"type":"result","round_id":1,"claim":%s,"actual":300}' % bad) is None
+    assert main.parse_line(_r2(1, "68.0"))["actual"] == 68.0
+
+
+def test_shipped_rest_is_below_best():
+    import importlib.util
+    import pathlib
+    import config
+    spec = importlib.util.spec_from_file_location("shipped_config2", pathlib.Path(config.__file__))
+    shipped = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shipped)
+    assert 0 < shipped.STEADY_REST_MG <= shipped.STEADY_BEST_MG < shipped.STEADY_WORST_MG

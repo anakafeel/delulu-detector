@@ -14,3 +14,5 @@ def _fixed_steady_thresholds(monkeypatch):
     """Pin Round 2 thresholds so tests don't break when pi/config.py is re-calibrated."""
     monkeypatch.setattr(config, "STEADY_BEST_MG", 8.0)
     monkeypatch.setattr(config, "STEADY_WORST_MG", 80.0)
+    # Off by default so tests with small mg values still score; test it explicitly.
+    monkeypatch.setattr(config, "STEADY_REST_MG", 0.0)
