@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
-import { API_BASE, USE_MOCK } from '../data/dataSource'
+import { API_BASE } from '../data/dataSource'
 
 const RETRY_MS = 3000
-const WIDTH = 360 // 4:3 box; the Pi sends 640x480 (or smaller) frames
 
 // The face rounds (Poker Face, Straight Face): the webcam, as MJPEG from the Pi
 // (GET /api/camera.mjpg). The Pi already mirrors the frames like a selfie and
@@ -17,7 +16,7 @@ const WIDTH = 360 // 4:3 box; the Pi sends 640x480 (or smaller) frames
 export default function CameraFeed({ camera, isPerforming }) {
   const [attempt, setAttempt] = useState(0)
   const [failed, setFailed] = useState(false)
-  const available = !USE_MOCK && camera?.available === true
+  const available = camera?.available === true
   const current = available ? camera : null
 
   // A dropped stream (Pi restarted, network blip): try again after a moment.
@@ -32,19 +31,15 @@ export default function CameraFeed({ camera, isPerforming }) {
 
   const accent = isPerforming ? 'var(--color-reality)' : 'var(--color-claim)'
   let placeholder = null
-  if (USE_MOCK) placeholder = 'The live camera shows here in a real game'
-  else if (!available) placeholder = 'No camera feed (a face round with the webcam and --ui)'
+  if (!available) placeholder = 'No camera feed (a face round with the webcam and --ui)'
   else if (failed) placeholder = 'Camera reconnecting...'
 
   return (
-    <div className="flex flex-col items-center gap-3" style={{ width: WIDTH }}>
+    <div className="absolute inset-0 bg-black">
       <div
-        className="relative w-full overflow-hidden rounded-xl border bg-void"
+        className="relative h-full w-full overflow-hidden"
         style={{
-          aspectRatio: '4 / 3',
-          borderColor: placeholder ? 'var(--color-ink-faint)' : accent,
-          borderStyle: placeholder ? 'dashed' : 'solid',
-          boxShadow: placeholder ? 'none' : `0 0 18px -4px ${accent}`,
+          boxShadow: placeholder ? 'none' : `inset 0 0 0 2px ${accent}`,
         }}
       >
         {placeholder ? (
@@ -65,7 +60,9 @@ export default function CameraFeed({ camera, isPerforming }) {
           </span>
         )}
       </div>
-      <Readout camera={failed ? null : current} />
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
+        <Readout camera={failed ? null : current} />
+      </div>
     </div>
   )
 }
@@ -86,7 +83,7 @@ function MjpegImage({ src, onError }) {
       src={src}
       onError={onError}
       alt="Live camera"
-      className="h-full w-full object-cover"
+      className="h-full w-full object-contain"
       draggable={false}
     />
   )
@@ -96,13 +93,12 @@ function Readout({ camera }) {
   if (!camera) return <p className="h-6" />
   if (camera.mode === 'measuring' && camera.kind === 'straight') return <StraightReadout camera={camera} />
   if (camera.mode === 'measuring') {
-    const pct = camera.smilePct
+    const composure = camera.composure
+    const text = composure === null || composure === undefined ? '--' : Math.round(composure)
     return (
       <p className="h-6 font-game text-sm uppercase tracking-[0.3em] text-ink-dim">
-        Smiling{' '}
-        <span className={`text-lg font-bold tabular-nums ${camera.smiling ? 'text-critical' : 'text-reality'}`}>
-          {pct === null || pct === undefined ? '--' : `${pct}%`}
-        </span>
+        Composure{' '}
+        <span className="text-lg font-bold tabular-nums text-reality">{text}</span>
       </p>
     )
   }
@@ -119,6 +115,14 @@ function Readout({ camera }) {
 // Straight Face: a neutral-face baseline, then a running timer until the face changes.
 function StraightReadout({ camera }) {
   const cls = 'h-6 font-game text-sm uppercase tracking-[0.3em]'
+  if (typeof camera.composure === 'number') {
+    return (
+      <p className={`${cls} text-ink-dim`}>
+        Composure{' '}
+        <span className="text-lg font-bold tabular-nums text-reality">{Math.round(camera.composure)}</span>
+      </p>
+    )
+  }
   if (camera.phase === 'changed') {
     const at = camera.changedAtS
     return (

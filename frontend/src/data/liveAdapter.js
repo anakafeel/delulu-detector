@@ -1,11 +1,11 @@
 // Turns the Pi's /api/state JSON (pi/ui_server.py) into exactly what the
-// components already render. The Pi sends the same shape as the mock
-// ({screen, player, activeRound, liveClaim, latestResult, history}); this only
+// components render. The Pi sends
+// {screen, player, activeRound, liveClaim, latestResult, history}; this only
 // fills in display details from roundDefs.js and handles rounds without a gap.
 import { roundById, roundByNumber } from './roundDefs'
 
 // Fallback display units for the Pi's raw unit codes, if a round isn't in roundDefs.
-const UNIT_SUFFIX = { ms: 'ms', mg_rms: ' mg RMS', smile_pct: '% smiling', s: ' s held' }
+const UNIT_SUFFIX = { ms: 'ms', mg_rms: ' mg RMS', smile_pct: '% smiling', s: ' s held', composure: '' }
 
 function defFor(key, number) {
   return roundById(key) ?? roundByNumber(number) ?? null

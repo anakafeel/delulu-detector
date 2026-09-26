@@ -7,7 +7,7 @@ import Leaderboard from './components/Leaderboard'
 import CalibrationCurve from './components/CalibrationCurve'
 import ClaimAnnouncer from './components/ClaimAnnouncer'
 
-const CONNECTION_LABEL = { live: 'Live', mock: 'Mock', offline: 'Offline' }
+const CONNECTION_LABEL = { live: 'Live', offline: 'Offline' }
 
 function Stage({ state }) {
   switch (state.screen) {
@@ -32,6 +32,25 @@ function Stage({ state }) {
 
 export default function App() {
   const state = useGameState()
+  const cameraFull =
+    (state.screen === 'predicting' || state.screen === 'performing') &&
+    state.activeRound?.uses_camera === true
+
+  if (cameraFull) {
+    return (
+      <div className="fixed inset-0 z-20 h-full w-full bg-black">
+        <div className="relative h-full w-full">
+          <Stage state={state} />
+        </div>
+        <ClaimAnnouncer screen={state.screen} liveClaim={state.liveClaim} />
+        {state.notice && (
+          <p className="anim-fade-in absolute inset-x-6 bottom-16 z-30 rounded-md border border-critical/60 bg-surface px-4 py-2 text-center font-game text-sm text-critical">
+            {state.notice.message}
+          </p>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="relative flex h-screen flex-col bg-void p-5">

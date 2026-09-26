@@ -193,6 +193,14 @@ ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_128"
 # If the TTS call takes longer than this, give up and use the fallback line.
 ELEVENLABS_TIMEOUT_S = _env_float("ELEVENLABS_TIMEOUT_S", 3.0)
 
+# Presage SmartSpectra. The key only authorizes the on-device SDK.
+# Official name is SMARTSPECTRA_API_KEY. PRESAGE_API_KEY is accepted too.
+PRESAGE_API_KEY = (os.environ.get("SMARTSPECTRA_API_KEY")
+                   or os.environ.get("PRESAGE_API_KEY") or "").strip()
+if PRESAGE_API_KEY:
+    os.environ["SMARTSPECTRA_API_KEY"] = PRESAGE_API_KEY
+PRESAGE_READY_TIMEOUT_S = _env_float("PRESAGE_READY_TIMEOUT_S", 20.0)
+
 # --------------------------------------------------------------------------
 # Paths / audio
 # --------------------------------------------------------------------------
@@ -203,7 +211,7 @@ ASSETS_DIR = REPO_ROOT / "assets"
 # fallback_delulu.mp3. Round-specific files win over those if present:
 # assets/fallback_round2_<tier>.mp3 / fallback_round5_<tier>.mp3 (for example fallback_round2_delulu.mp3).
 FALLBACK_AUDIO = ASSETS_DIR / "fallback_verdict.mp3"
-# Interview-question clips (generate them with `python pi/make_fallbacks.py --questions`):
+# Interview-question clips, if present. A missing clip means that round's prompt is silent.
 #   assets/questions/poker_XX.mp3     one random tough question at the start of each
 #                                     Poker Face window (non-blocking)
 #   assets/questions/pressure_XX.mp3  Straight Face: played back to back, rapid fire

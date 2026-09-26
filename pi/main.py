@@ -49,6 +49,7 @@ import straight_round
 import ui_server
 import vision
 from elevenlabs_client import deliver_verdict
+from presage_client import PresageError
 from poker_round import parse_claim, window_line
 from scoring import (ROUND_POKER, ROUND_REFLEX, ROUND_STEADY, ROUND_STRAIGHT, RoundResult, clamp,
                      claim_to_seconds, score_reading, tremor_mg_to_performance)
@@ -512,10 +513,12 @@ def handle_reading(reading: dict, player: str, session_id: str, log: SessionLog,
         print(f"   gap {result.gap:.0f} | score {result.score} | tier {result.tier} ({result.direction})")
     else:
         print(f"   score {result.score} | tier {result.tier} (no gap; not counted for best/worst gap)")
-    if ui is not None:              # show the line in the browser before the audio plays
-        deliver_verdict(result, player, play=play_audio, on_text=ui.verdict_text)
-    else:
+    if ui is None:
         deliver_verdict(result, player, play=play_audio)
+    else:
+        verdict = deliver_verdict(result, player, play=play_audio, on_text=ui.verdict_text)
+        if getattr(verdict, "source", "elevenlabs") != "elevenlabs":
+            ui.verdict_unavailable()
     return result, round_number
 
 
@@ -554,6 +557,7 @@ _SENSOR_ERRORS = {
     "no_face": "no face in view for most of the window. FACE THE CAMERA (good light, nothing "
                "covering your face, not too far away), then press the button again",
     "camera_read": "the webcam delivered no frames. Check the USB cable or try another --camera index",
+    "presage": "Presage did not return a composure reading",
 }
 
 
@@ -564,7 +568,8 @@ def report_sensor_error(reading: dict) -> None:
     got = f" ({samples} samples)" if samples is not None else ""
     if reading["round_id"] in FACE_ROUNDS and reading.get("frames") is not None:
         got = f" (face in {(reading.get('face_frac') or 0) * 100:.0f}% of {reading['frames']} frames)"
-    print(f"   [error] {round_title(reading['round_id'])} sensor error '{code}'{got}: {detail}. "
+    extra = f" {reading['presage_error']}" if reading.get("presage_error") else ""
+    print(f"   [error] {round_title(reading['round_id'])} sensor error '{code}'{got}: {detail}.{extra} "
           "Not scored or logged. Still listening.", file=sys.stderr)
 
 
@@ -735,13 +740,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         try:
             if args.round == ROUND_POKER:
                 poker = poker_round.build(mock=args.mock, camera_index=args.camera, preview=args.preview,
-                                          play_jokes=not args.no_audio, seed=args.seed, video=args.video)
+                                          play_jokes=not args.no_audio, seed=args.seed, video=args.video,
+                                          require_presage=not args.calibrate and not args.mock)
             else:
                 poker = straight_round.build(mock=args.mock, camera_index=args.camera,
                                              preview=args.preview, play_questions=not args.no_audio,
-                                             seed=args.seed, video=args.video)
+                                             seed=args.seed, video=args.video,
+                                             require_presage=not args.calibrate and not args.mock)
                 poker.on_change = link.stop_cue        # the face changed: end the sketch's cue early
-        except vision.VisionUnavailable as exc:
+        except (vision.VisionUnavailable, PresageError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
     elif args.camera is not None or args.preview:
@@ -913,7 +920,8 @@ def linger_for_ui(srv) -> None:
 def ui_sensor_error_message(reading: dict) -> str:
     code = reading.get("error") or "no_measurement"
     detail = _SENSOR_ERRORS.get(code, "the Arduino reported no measurement")
-    return f"Sensor error ({code}): {detail}. Not scored."
+    extra = f" {reading['presage_error']}" if reading.get("presage_error") else ""
+    return f"Sensor error ({code}): {detail}.{extra} Not scored."
 
 
 def _print_poker_setup(poker: poker_round.FaceRound, args) -> None:
@@ -930,14 +938,14 @@ def _print_poker_setup(poker: poker_round.FaceRound, args) -> None:
         n = len(poker.question_files())
         q = ("questions off (--no-audio)" if not poker.play_questions else
              f"{n} rapid-fire question clip(s) in assets/questions/" if n else
-             "no pressure_XX.mp3 question clips (python pi/make_fallbacks.py --questions)")
+             "no pressure_XX.mp3 question clips")
         print(f"{round_title(ROUND_STRAIGHT)}: {cam} | up to {poker.window_s:g} s (dial 100 = "
               f"{poker.window_s:g} s) | {q}{preview}")
         return
     n = len(poker_round.joke_files(poker.jokes_dir))
     q = ("question off (--no-audio)" if not poker.play_jokes else
          f"{n} interview-question clip(s)" if n else
-         "no poker_XX.mp3 question clips (python pi/make_fallbacks.py --questions)")
+         "no poker_XX.mp3 question clips")
     print(f"{round_title(ROUND_POKER)}: {cam} | window {poker.window_s:g} s | {q}{preview}")
 
 

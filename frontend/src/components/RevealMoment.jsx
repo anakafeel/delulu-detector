@@ -25,6 +25,7 @@ export default function RevealMoment({ result }) {
   if (!result || !severity) return null
 
   const amplitude = SHAKE_AMPLITUDE[severity.key]
+  const verdictText = visibleVerdict(result)
 
   return (
     <div className="relative flex h-full flex-col items-center justify-center gap-6 overflow-hidden text-center">
@@ -56,11 +57,20 @@ export default function RevealMoment({ result }) {
           className="anim-stamp-in max-w-2xl px-4 font-display text-4xl leading-tight text-ink md:text-5xl"
           style={{ textShadow: `0 0 30px ${severity.color}` }}
         >
-          {result.verdict_text}
+          {verdictText}
         </p>
       </div>
     </div>
   )
+}
+
+// The Pi's spoken line, or the fixed fallback when it has none. Never a canned roast.
+function visibleVerdict(result) {
+  if (result.verdict_status === 'unavailable') return 'verdict unavailable'
+  const text = typeof result.verdict_text === 'string' ? result.verdict_text.trim() : ''
+  if (text) return result.verdict_text
+  if (result.verdict_status === 'pending') return ''
+  return 'verdict unavailable'
 }
 
 function Stat({ label, value, color, sub }) {

@@ -197,6 +197,28 @@ def score_steady_round(
     return _scored_result(ROUND_STEADY, claim_i, tremor, "mg_rms", performance, extra)
 
 
+def score_composure_round(
+    round_id: int,
+    claim: float,
+    composure: float,
+    extra: Optional[dict] = None,
+) -> RoundResult:
+    """Score a face round from Presage's neutral-expression confidence (0-100).
+
+    The claim is already 0-100. Performance is that confidence, unchanged.
+    A missing or non-finite composure is not a score: the caller must not
+    substitute one, and this function raises instead.
+    """
+    if composure is None:
+        raise ValueError("face round needs a Presage composure value")
+    value = float(composure)
+    if value < 0.0 or value > 100.0:
+        raise ValueError("Presage composure must be between 0 and 100")
+    claim_i = int(round(clamp(float(claim))))
+    performance = value
+    return _scored_result(round_id, claim_i, round(value, 1), "composure", performance, extra)
+
+
 def score_poker_round(
     claim: float,
     smile_frac: float,
@@ -283,6 +305,10 @@ def score_reading(reading: dict) -> RoundResult:
             peak_mg=reading.get("peak"),
             samples=reading.get("samples"),
         )
+    if round_id in (ROUND_POKER, ROUND_STRAIGHT) and reading.get("composure") is not None:
+        extra = {k: reading[k] for k in ("smile_frac", "face_frac", "frames", "fps",
+                                          "held_s", "first_smile_ms") if k in reading}
+        return score_composure_round(round_id, reading["claim"], reading["composure"], extra)
     if round_id == ROUND_POKER:
         frac = reading.get("smile_frac")
         if frac is None and reading.get("actual") is not None:

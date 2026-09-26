@@ -24,7 +24,7 @@ function Leaderboard({ history }) {
             <span />
             <span>Player</span>
             <span className="text-right">Best</span>
-            <span className="text-right">Delulu</span>
+            <span className="text-right">Way off</span>
             <span className="text-right">Rds</span>
           </div>
 

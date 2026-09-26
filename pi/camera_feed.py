@@ -196,6 +196,8 @@ class CameraFeed:
             info.update(phase=x.get("phase"), held_s=x.get("held_s"),
                         changed_at_s=x.get("changed_at_s"), trigger=x.get("trigger"),
                         level=x.get("level"))
+        if self._extra.get("composure") is not None:
+            info["composure"] = self._extra.get("composure")
         return info
 
     def wait_jpeg(self, last_seq: int, timeout: float) -> Optional[tuple[int, bytes]]:
@@ -245,6 +247,8 @@ class CameraFeed:
         frac = info["smile_frac"]
         live = {"mode": info["mode"], "face": info["face"], "smiling": info["smiling"],
                 "smilePct": None if frac is None else int(round(frac * 100))}
+        if info.get("composure") is not None:
+            live["composure"] = info["composure"]
         if "phase" in info:
             held, changed, level = info["held_s"], info["changed_at_s"], info["level"]
             live.update(phase=info["phase"],

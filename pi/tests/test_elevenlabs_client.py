@@ -107,26 +107,37 @@ def test_request_exception_becomes_tts_error(monkeypatch, tmp_path):
         ec.synthesize("hi", tmp_path / "v.mp3", api_key="k", timeout_s=1.0)
 
 
-def test_mp3_write_failure_falls_back_to_text(monkeypatch, tmp_path):
+def test_mp3_write_failure_is_unavailable_and_plays_nothing(monkeypatch, tmp_path):
     monkeypatch.setattr(ec.requests, "post", lambda url, **kw: _FakeResponse([b"audio"]))
     blocker = tmp_path / "not_a_dir"
     blocker.write_text("file where the tts folder should be")
     monkeypatch.setattr(config, "TTS_OUTPUT_DIR", blocker / "tts")
     monkeypatch.setattr(config, "ELEVENLABS_API_KEY", "k")
-    monkeypatch.setattr(config, "ASSETS_DIR", tmp_path / "assets")
-    monkeypatch.setattr(config, "FALLBACK_AUDIO", tmp_path / "assets" / "fallback_verdict.mp3")
-    v = ec.deliver_verdict(score_reflex_round(90, 375), "Saim", play=False)
-    assert v.source == "text_only"
-    assert "could not write" in v.reason
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "fallback_spicy.mp3").write_bytes(b"ID3")
+    (assets / "fallback_verdict.mp3").write_bytes(b"ID3")
+    monkeypatch.setattr(config, "ASSETS_DIR", assets)
+    monkeypatch.setattr(config, "FALLBACK_AUDIO", assets / "fallback_verdict.mp3")
+    played = []
+    monkeypatch.setattr(ec, "play_audio", lambda path: played.append(path) or True)
+    v = ec.deliver_verdict(score_reflex_round(90, 375), "Saim", play=True)
+    assert v.source == "unavailable"
+    assert v.audio_path is None and played == []
+    assert v.error and "could not write" in v.error and v.error == v.reason
 
 
-def test_no_key_uses_fallback_without_network(monkeypatch, tmp_path):
+def test_no_key_is_unavailable_without_network_or_playback(monkeypatch, tmp_path):
     def fail_post(url, **kw):
         raise AssertionError("must not call the network without a key")
 
     monkeypatch.setattr(ec.requests, "post", fail_post)
+    monkeypatch.setattr(ec, "play_audio", lambda path: pytest.fail(f"played {path}"))
     monkeypatch.setattr(config, "ELEVENLABS_API_KEY", "")
+    (tmp_path / "fallback_timeout.mp3").write_bytes(b"ID3")
+    (tmp_path / "fallback_verdict.mp3").write_bytes(b"ID3")
     monkeypatch.setattr(config, "ASSETS_DIR", tmp_path)
     monkeypatch.setattr(config, "FALLBACK_AUDIO", tmp_path / "fallback_verdict.mp3")
-    v = ec.deliver_verdict(score_reflex_round(0, None, timeout=True), "Saim", play=False)
-    assert v.source == "text_only" and "not set" in v.reason
+    v = ec.deliver_verdict(score_reflex_round(0, None, timeout=True), "Saim", play=True)
+    assert v.source == "unavailable" and v.audio_path is None
+    assert v.error and "not set" in v.error and v.error == v.reason

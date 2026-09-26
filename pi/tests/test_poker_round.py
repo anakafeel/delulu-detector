@@ -470,7 +470,7 @@ def test_real_round_5_without_opencv_is_a_clear_error(tmp_path):
 
 
 def test_importing_the_app_does_not_import_cv2():
-    code = ("import sys; sys.path.insert(0, %r); import main, vision, poker_round, make_fallbacks; "
+    code = ("import sys; sys.path.insert(0, %r); import main, vision, poker_round; "
             "print('cv2' in sys.modules)" % str(PI_DIR))
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
     assert proc.stdout.strip() == "False", proc.stderr

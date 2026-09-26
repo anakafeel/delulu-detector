@@ -11,7 +11,7 @@
 //   Straight Face  seconds until the face visibly changed under rapid-fire questions
 //                  (dial 0-100 = 0-claim_max_s seconds, 20 s by default; the Pi sends the real max)
 // Legacy rounds (cut from The Tell, `legacy: true`) stay here only so old session
-// rows still render; they're left out of GAME_ROUNDS (idle marquee, mock rotation).
+// rows still render; they're left out of GAME_ROUNDS (idle marquee).
 export const ROUND_DEFS = [
   {
     round_id: 'reflex',
@@ -51,15 +51,6 @@ export const ROUND_DEFS = [
     prompt: 'Claimed steadiness',
     actual_unit: ' mg RMS',
     actual_label: 'hand tremor',
-  },
-  {
-    round_id: 'retreat',
-    number: 3,
-    legacy: true,
-    round_name: 'Retreat Round',
-    prompt: 'Claimed unshakeability',
-    actual_unit: ' cm',
-    actual_label: 'flinch distance',
   },
 ]
 

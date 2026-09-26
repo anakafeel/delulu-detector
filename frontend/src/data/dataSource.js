@@ -1,7 +1,7 @@
 // The one file to touch when the data source changes. Everything else in the
-// app talks to `subscribe`, never to fetch/mock details directly.
+// app talks to `subscribe`, never to fetch details directly.
 //
-// Live (default): the Pi game loop (python pi/main.py --ui) serves its state.
+// The Pi game loop (python pi/main.py --ui) is the only source:
 //   1. EventSource on /api/events (Server-Sent Events): the full state on every
 //      real change, plus small `dial` events ({"liveClaim": N}) while the knob
 //      turns, and small `live` events ({"camera": {mode, face, smiling, ...}}, the
@@ -9,31 +9,14 @@
 //      touching history/leaderboard
 //   2. while that is down, polling /api/state every second (EventSource keeps
 //      reconnecting in the background; polling stops once it is back)
-// Mock: open the app with ?mock=1, or build/run with VITE_USE_MOCK=1.
 // In dev, vite.config.js proxies /api to the Python server; the built app is
 // served by the Python server itself, so /api is same-origin there.
 // VITE_API_BASE (e.g. http://192.168.1.20:8765) points at a Pi elsewhere.
-import { createMockSimulator } from './mockSimulator'
 import { toUiState } from './liveAdapter'
-
-const params = new URLSearchParams(window.location.search)
-export const USE_MOCK = params.has('mock')
-  ? params.get('mock') !== '0'
-  : import.meta.env.VITE_USE_MOCK === '1'
 
 export const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 const POLL_MS = 1000
 const OFFLINE_STATE = toUiState({ screen: 'idle', history: [] })
-
-let mockInstance = null
-
-export function subscribe(callback) {
-  if (USE_MOCK) {
-    if (!mockInstance) mockInstance = createMockSimulator()
-    return mockInstance.subscribe((state) => callback({ ...state, connection: 'mock' }))
-  }
-  return subscribeLive(callback)
-}
 
 // Keeps the previous converted value (same reference) when the raw JSON part
 // is unchanged, so memoized components (Leaderboard, CalibrationCurve) skip
@@ -60,7 +43,7 @@ function keepLiveCamera(prev, next) {
   return { ...prev, ...next }
 }
 
-function subscribeLive(callback) {
+export function subscribe(callback) {
   let closed = false
   let last = null
   let pollTimer = null

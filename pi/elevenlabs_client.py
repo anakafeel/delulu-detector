@@ -1,4 +1,4 @@
-"""Verdict lines + ElevenLabs text-to-speech, with a fallback that never blocks the demo.
+"""Verdict lines + ElevenLabs text-to-speech.
 
 deliver_verdict() is the one call main.py makes:
   1. build the verdict text from the round numbers (template set picked by round
@@ -6,14 +6,12 @@ deliver_verdict() is the one call main.py makes:
      player in a session),
   2. try ElevenLabs TTS (REST, `requests`) with a hard total time budget
      (config.ELEVENLABS_TIMEOUT_S, default 3 s, covering connect + download),
-  3. on no key / timeout / HTTP error / no audio / mp3 write error: play the pre-recorded fallback
-     (assets/fallback_round<N>_<tier>.mp3, else assets/fallback_<tier>.mp3, else
-     assets/fallback_verdict.mp3), and if
-     that is missing too, just print the verdict text.
-The verdict text is always printed so the audience can read it.
-The fallback lines live in FALLBACK_LINES; pi/make_fallbacks.py turns them into mp3s.
+  3. on no key / timeout / HTTP error / no audio / mp3 write error: play nothing.
+     The returned Verdict has source "unavailable" and error/reason set to why.
+The verdict text is always printed so the audience can read it. Nothing is read
+from assets/fallback_*.mp3.
 The interview questions the face rounds play (the stimulus, not verdicts) live in
-POKER_QUESTION_LINES / PRESSURE_QUESTION_LINES; pi/make_fallbacks.py --questions.
+POKER_QUESTION_LINES / PRESSURE_QUESTION_LINES.
 
 The narrator's voice (The Tell): a skeptical interviewer who is also your
 brutally honest friend. Dry, specific, unimpressed by claims, fair about evidence.
@@ -403,42 +401,11 @@ def build_verdict_text(result: RoundResult, player: str, rng: Optional[random.Ra
 
 
 # ---------------------------------------------------------------------------
-# Pre-recorded fallback lines (played when TTS is down or too slow, so they
-# carry no names and no numbers). Generate the mp3s before a demo with
-#     python pi/make_fallbacks.py --dry-run     # then without --dry-run
-# Key: (round_id, tier). round_id None = round-neutral file, tier None = the
-# generic file. fallback_path() turns a key into the file name the app plays.
-# Tier lines must fit both directions (the file is picked by tier only).
-# ---------------------------------------------------------------------------
-FALLBACK_LINES: dict[tuple[Optional[int], Optional[str]], str] = {
-    (None, None): "The verdict is on the screen. Read it. I'm not repeating myself.",
-    (None, "validated"): "Validated. Your confidence and your performance actually agree. I checked. Twice.",
-    (None, "mild"): "A little off. Close enough to defend, far enough that I noticed.",
-    (None, "spicy"): "Spicy. Your answer and the evidence just had a very public disagreement.",
-    (None, "delulu"): "Certified delulu. Your self-image and the evidence are not on speaking terms.",
-    (None, "false_start"): "False start! You answered before the question. No points this round.",
-    (None, "timeout"): "Timeout. I waited. I'm still waiting. No points this round.",
-    (2, "validated"): "Validated. Steady as a surgeon, and honest about it.",
-    (2, "mild"): "Close, but not quite. Your hands and your ego almost agree.",
-    (2, "spicy"): "Spicy. Your hands and your confidence told very different stories.",
-    (2, "delulu"): "Certified delulu. Your hands and your self-image live in different universes.",
-    (5, "validated"): "Validated. You know exactly how readable your face is. Unsettling.",
-    (5, "mild"): "Close. You and the camera almost agree about your poker face. Almost.",
-    (5, "spicy"): "Spicy. Your face and your dial told very different stories.",
-    (5, "delulu"): "Certified delulu. Your poker face and your self-image have clearly never met.",
-    (6, "validated"): "Validated. You knew exactly how long your face would hold. That's the whole game.",
-    (6, "mild"): "Close. Your guess about your own straight face was nearly right.",
-    (6, "spicy"): "Spicy. Your straight face and your self-assessment are not on the same page.",
-    (6, "delulu"): "Certified delulu. You have no idea how long your own face can hold.",
-}
-
-# ---------------------------------------------------------------------------
 # The face rounds' stimulus: interview questions (not verdicts, so no word
-# limit, but short). pi/make_fallbacks.py --questions turns them into
+# limit, but short). Clips, when a machine has them, are
 #   assets/questions/poker_XX.mp3     Poker Face: one per window, it has 6 s
 #   assets/questions/pressure_XX.mp3  Straight Face: rapid fire, back to back
-# with the same voice and model as the verdicts. Party-safe: pressure, not
-# cruelty; never about appearance or identity.
+# Party-safe: pressure, not cruelty; never about appearance or identity.
 # ---------------------------------------------------------------------------
 POKER_QUESTION_LINES: list[str] = [
     "So. Why should we hire you, and not literally anyone else?",
@@ -487,46 +454,6 @@ def question_plan(kind: Optional[str] = None) -> list[tuple[Path, str]]:
     kinds = [kind] if kind else list(QUESTION_SETS)
     return [(question_path(k, i), text) for k in kinds
             for i, text in enumerate(QUESTION_SETS[k], start=1)]
-
-
-# Tiers each round can produce (and so needs a fallback for).
-_FAILED_TIERS = {1: ("false_start", "timeout")}
-
-
-def round_tiers(round_id: int) -> list[str]:
-    return [name for _, name in config.GAP_TIERS] + list(_FAILED_TIERS.get(round_id, ()))
-
-
-def fallback_path(tier: Optional[str], round_id: Optional[int] = None) -> Path:
-    """File name for a fallback: generic (tier None), per tier, or per round and tier."""
-    if tier is None:
-        return config.FALLBACK_AUDIO
-    if round_id is None:
-        return config.ASSETS_DIR / f"fallback_{tier}.mp3"
-    return config.ASSETS_DIR / f"fallback_round{round_id}_{tier}.mp3"
-
-
-def fallback_candidates(tier: str, round_id: Optional[int] = None) -> list[Path]:
-    """Where fallback_audio_for() looks, in order."""
-    candidates = [fallback_path(tier), fallback_path(None)]
-    if round_id is not None:
-        candidates.insert(0, fallback_path(tier, round_id))
-    return candidates
-
-
-def fallback_plan(round_id: Optional[int] = None) -> list[tuple[Path, str]]:
-    """(file, text) for every fallback line, in FALLBACK_LINES order.
-
-    With round_id, only the files that round can ever play (its own files, the
-    round-neutral files for its tiers and the generic one).
-    """
-    keys = list(FALLBACK_LINES)
-    if round_id is not None:
-        playable = {(None, None)}
-        for tier in round_tiers(round_id):
-            playable |= {(None, tier), (round_id, tier)}
-        keys = [k for k in keys if k in playable]
-    return [(fallback_path(tier, rid), FALLBACK_LINES[(rid, tier)]) for rid, tier in keys]
 
 
 # ---------------------------------------------------------------------------
@@ -670,57 +597,55 @@ def play_audio(path: Path) -> bool:
         return False
 
 
-def fallback_audio_for(tier: str, round_id: Optional[int] = None) -> Optional[Path]:
-    for candidate in fallback_candidates(tier, round_id):
-        if candidate.is_file():
-            return candidate
-    return None
-
-
 # ---------------------------------------------------------------------------
 # One-call entry point
 # ---------------------------------------------------------------------------
 @dataclass
 class Verdict:
     text: str
-    source: str               # "elevenlabs" | "fallback_audio" | "text_only"
+    source: str               # "elevenlabs" | "unavailable"
     audio_path: Optional[Path]
-    reason: Optional[str]     # why we fell back, if we did
+    reason: Optional[str]     # why TTS failed, if it did
     elapsed_s: float
+    error: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        # `error` is the same failure string as `reason` (None when TTS worked).
+        if self.error is None:
+            self.error = self.reason
+        elif self.reason is None:
+            self.reason = self.error
 
 
 def deliver_verdict(result: RoundResult, player: str, play: bool = True,
                     memory: Optional[LastLineMemory] = None,
                     on_text: Optional[Callable[[str], None]] = None) -> Verdict:
-    """Print the verdict, then speak it (ElevenLabs, else fallback audio, else text only).
+    """Print the verdict, then speak it with ElevenLabs.
 
-    memory defaults to SESSION_LINES, so a player doesn't hear the same line twice in a row.
-    on_text (optional, e.g. the browser UI) gets the line before any TTS or audio;
-    an error in it is reported and ignored.
+    A missing key, timeout, HTTP error, empty audio, or mp3 write error does
+    not play a file and does not look in assets/. The returned Verdict has
+    source "unavailable" and error/reason set. This function does not raise
+    on those failures. memory defaults to SESSION_LINES, so a player doesn't
+    hear the same line twice in a row. on_text (optional, e.g. the browser UI)
+    gets the line before any TTS; an error in it is reported and ignored.
     """
     text = build_verdict_text(result, player, memory=SESSION_LINES if memory is None else memory)
     print(f'   NARRATOR: "{text}"')
+    t0 = time.monotonic()
+    out = config.TTS_OUTPUT_DIR / f"verdict_{datetime.now():%Y%m%d_%H%M%S_%f}.mp3"
+    try:
+        path = synthesize(text, out)
+    except TTSError as exc:
+        elapsed = time.monotonic() - t0
+        reason = str(exc)
+        print(f"   [error] TTS unavailable ({reason})", file=sys.stderr)
+        return Verdict(text, "unavailable", None, reason, elapsed)
+    elapsed = time.monotonic() - t0
     if on_text is not None:
         try:
             on_text(text)
         except Exception as exc:  # noqa: BLE001 - a display hook must never cost the verdict
             print(f"   [warn] verdict text hook failed: {exc}", file=sys.stderr)
-    t0 = time.monotonic()
-    out = config.TTS_OUTPUT_DIR / f"verdict_{datetime.now():%Y%m%d_%H%M%S_%f}.mp3"
-    try:
-        path = synthesize(text, out)
-        elapsed = time.monotonic() - t0
-        if play:
-            play_audio(path)
-        return Verdict(text, "elevenlabs", path, None, elapsed)
-    except TTSError as exc:
-        reason = str(exc)
-    elapsed = time.monotonic() - t0
-    fallback = fallback_audio_for(result.tier, result.round_id)
-    if fallback is not None:
-        print(f"   [fallback] TTS unavailable ({reason}); playing {fallback.name}")
-        if play:
-            play_audio(fallback)
-        return Verdict(text, "fallback_audio", fallback, reason, elapsed)
-    print(f"   [fallback] TTS unavailable ({reason}); no fallback audio in assets/, text only")
-    return Verdict(text, "text_only", None, reason, elapsed)
+    if play:
+        play_audio(path)
+    return Verdict(text, "elevenlabs", path, None, elapsed)

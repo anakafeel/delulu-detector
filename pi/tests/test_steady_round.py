@@ -186,17 +186,6 @@ def test_round_1_still_uses_round_1_templates():
     assert text == ec.TEMPLATES["delulu_over"][0].format(player="Saim", claim=100, ms=600, gap=100, perf=0)
 
 
-def test_round_specific_fallback_audio_wins(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "ASSETS_DIR", tmp_path)
-    monkeypatch.setattr(config, "FALLBACK_AUDIO", tmp_path / "fallback_verdict.mp3")
-    (tmp_path / "fallback_delulu.mp3").write_bytes(b"x")
-    assert ec.fallback_audio_for("delulu", 2).name == "fallback_delulu.mp3"
-    (tmp_path / "fallback_round2_delulu.mp3").write_bytes(b"x")
-    assert ec.fallback_audio_for("delulu", 2).name == "fallback_round2_delulu.mp3"
-    assert ec.fallback_audio_for("delulu", 1).name == "fallback_delulu.mp3"
-    assert ec.fallback_audio_for("delulu").name == "fallback_delulu.mp3"
-
-
 def test_shipped_calibration_is_sane():
     import importlib.util, pathlib
     spec = importlib.util.spec_from_file_location("shipped_config", pathlib.Path(config.__file__))

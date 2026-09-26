@@ -1,0 +1,8 @@
+{
+  "name": "tell-presage",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@smartspectra/node-sdk": "3.3.0"
+  }
+}

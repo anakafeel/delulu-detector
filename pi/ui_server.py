@@ -162,6 +162,7 @@ def result_from_row(row: dict, verdict_text: Optional[str] = None) -> dict:
         "scored": gap is not None,
         "extra": _safe_extra(extra),
         "verdict_text": verdict_text,
+        "verdict_status": "ready" if verdict_text else "pending",
         "timestamp": row.get("ts"),
     }
 
@@ -410,14 +411,30 @@ class GameState:
 
     @_crash_safe
     def verdict_text(self, text: str) -> None:
-        """The narrator's line for the latest result (called before the audio plays)."""
+        """The narrator's line, only after ElevenLabs has returned the audio."""
         with self._cond:
             if self.latest_result is None:
                 return
             key = self.latest_result["round_id"]
             self._verdicts[key] = str(text)
-            self.latest_result = dict(self.latest_result, verdict_text=str(text))
-            self.history = [dict(r, verdict_text=str(text)) if r.get("round_id") == key else r
+            self.latest_result = dict(self.latest_result, verdict_text=str(text),
+                                      verdict_status="ready")
+            self.history = [dict(r, verdict_text=str(text), verdict_status="ready")
+                            if r.get("round_id") == key else r
+                            for r in self.history]
+            self._changed()
+
+    @_crash_safe
+    def verdict_unavailable(self) -> None:
+        """ElevenLabs did not return audio. The screen says so. No substitute line."""
+        with self._cond:
+            if self.latest_result is None:
+                return
+            key = self.latest_result["round_id"]
+            self.latest_result = dict(self.latest_result, verdict_text="",
+                                      verdict_status="unavailable")
+            self.history = [dict(r, verdict_text="", verdict_status="unavailable")
+                            if r.get("round_id") == key else r
                             for r in self.history]
             self._changed()
 

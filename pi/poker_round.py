@@ -42,7 +42,50 @@ from typing import Callable, Optional
 import config
 import elevenlabs_client as ec
 import vision
+from presage_client import PresageError, PresageSession
 from scoring import ROUND_POKER
+
+
+def _open_presage(camera, require: bool) -> Optional[PresageSession]:
+    """Start Presage on a real camera. Calibration passes require=False."""
+    if not require:
+        return None
+    session = PresageSession()
+    try:
+        session.start()
+    except Exception:
+        close = getattr(camera, "close", None)
+        if close is not None:
+            close()
+        raise
+    return session
+
+
+def _presage_failure(claim_msg: dict, round_id: int, exc: PresageError) -> dict:
+    return {
+        "type": "result", "round_id": round_id, "seq": claim_msg.get("seq"),
+        "claim": float(claim_msg["claim"]), "actual": None, "unit": "composure",
+        "false_start": False, "timeout": False,
+        "error": "presage", "presage_error": str(exc),
+    }
+
+
+def _apply_presage(session: Optional[PresageSession], reading: dict) -> dict:
+    """Replace the scored actual with Presage composure. Leave an existing sensor error alone."""
+    if session is None or reading.get("error"):
+        return reading
+    try:
+        value = round(session.finish(), 1)
+    except PresageError as exc:
+        reading["error"] = "presage"
+        reading["presage_error"] = str(exc)
+        reading["actual"] = None
+        reading["composure"] = None
+        return reading
+    reading["composure"] = value
+    reading["actual"] = value
+    reading["unit"] = "composure"
+    return reading
 
 
 def parse_claim(line: str) -> Optional[dict]:
@@ -153,6 +196,7 @@ class FaceRound:
         self._start_audio = start_audio_fn
         self._stop_audio = stop_audio_fn
         self.feed = None                      # camera_feed.CameraFeed (browser stream), set by attach_feed
+        self.presage = None                   # PresageSession; real rounds set this, mock rounds do not
         self._cam_lock = threading.Lock()     # measure() and the idle preview never read at once
         self._measuring = threading.Event()
         self._stop = threading.Event()
@@ -246,6 +290,9 @@ class FaceRound:
         finally:
             if got:
                 self._cam_lock.release()
+        if getattr(self, "presage", None) is not None:
+            self.presage.close()
+            self.presage = None
         if self.preview is not None:
             self.preview.close()
 
@@ -282,7 +329,7 @@ class PokerRound(FaceRound):
     def _measure_locked(self) -> vision.WindowStats:
         joke_proc = None
         wants_preview = self.preview is not None and self.preview.enabled
-        on_frame = self._on_frame if (wants_preview or self.feed is not None) else None
+        on_frame = self._on_frame if (wants_preview or self.feed is not None or self.presage is not None) else None
         if self.feed is not None:
             self.feed.begin("measuring", self.window_s)     # never raises
         try:
@@ -302,15 +349,28 @@ class PokerRound(FaceRound):
                 self.feed.end("measuring")
 
     def _on_frame(self, frame, obs, smiling: bool, elapsed_s: float) -> None:
-        """Per measured frame: the --preview window (draws a copy) and the browser slot (O(1))."""
+        """Per measured frame: Presage (the score), the preview window, and the browser slot."""
+        extra = None
+        if self.presage is not None:
+            self.presage.push(frame)
+            latest = self.presage.latest()
+            if latest is not None:
+                extra = {"composure": round(latest, 1)}
         if self.preview is not None and self.preview.enabled:
             self.preview.show(frame, obs, smiling, elapsed_s, self.window_s)   # never raises
         if self.feed is not None:
-            self.feed.offer(frame, obs, smiling, elapsed_s)                    # never raises
+            if extra is None:
+                self.feed.offer(frame, obs, smiling, elapsed_s)                 # never raises
+            else:
+                self.feed.offer(frame, obs, smiling, elapsed_s, extra=extra)
 
     def run(self, claim_msg: dict) -> dict:
-        stats = self.measure()
-        return reading_from_stats(claim_msg, stats)
+        try:
+            stats = self.measure()
+        except PresageError as exc:
+            return _presage_failure(claim_msg, self.round_id, exc)
+        reading = reading_from_stats(claim_msg, stats)
+        return _apply_presage(self.presage, reading)
 
 
 def reading_from_stats(claim_msg: dict, stats: vision.WindowStats,
@@ -353,7 +413,8 @@ def open_source(camera_index: Optional[int] = None, video: Optional[str] = None)
 
 def build(mock: bool, camera_index: Optional[int] = None, preview: bool = False,
           play_jokes: bool = True, seed: Optional[int] = None,
-          window_s: Optional[float] = None, video: Optional[str] = None) -> PokerRound:
+          window_s: Optional[float] = None, video: Optional[str] = None,
+          require_presage: bool = True) -> PokerRound:
     """Real webcam (or video=path) + Haar detector, or (mock=True) a scripted fake
     with a virtual clock. A video wins over mock (--mock --video: fake Arduino, real clip).
 
@@ -366,8 +427,11 @@ def build(mock: bool, camera_index: Optional[int] = None, preview: bool = False,
         return PokerRound(cam, vision.FakeDetector(), window_s, clock=cam.now,
                           play_jokes=play_jokes, rng=rng)
     camera, detector, clock = open_source(camera_index, video)
-    return PokerRound(camera, detector, window_s, clock=clock, play_jokes=play_jokes,
+    session = _open_presage(camera, require_presage)
+    game = PokerRound(camera, detector, window_s, clock=clock, play_jokes=play_jokes,
                       preview=vision.PreviewWindow(True) if preview else None, rng=rng)
+    game.presage = session
+    return game
 
 
 # ---------------------------------------------------------------------------

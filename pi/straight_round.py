@@ -35,8 +35,9 @@ from typing import Callable, Optional
 
 import config
 import vision
-from poker_round import (FaceRound, open_source, question_files, start_audio, stop_audio,
-                         window_line)
+from poker_round import (FaceRound, PresageError, _apply_presage, _open_presage,
+                         _presage_failure, open_source, question_files, start_audio,
+                         stop_audio, window_line)
 from scoring import ROUND_STRAIGHT, claim_to_seconds
 
 
@@ -159,7 +160,7 @@ class StraightRound(FaceRound):
     def _measure_locked(self) -> vision.StraightStats:
         barrage = None
         wants_preview = self.preview is not None and self.preview.enabled
-        on_frame = self._on_frame if (wants_preview or self.feed is not None) else None
+        on_frame = self._on_frame if (wants_preview or self.feed is not None or self.presage is not None) else None
         if self.feed is not None:
             self.feed.begin("measuring", self.window_s, kind="straight")     # never raises
         try:
@@ -188,6 +189,11 @@ class StraightRound(FaceRound):
                 self.feed.end("measuring")
 
     def _on_frame(self, frame, obs, info: dict) -> None:
+        if self.presage is not None:
+            self.presage.push(frame)
+            latest = self.presage.latest()
+            if latest is not None:
+                info = {**info, "composure": round(latest, 1)}
         if self.preview is not None and self.preview.enabled:
             self.preview.show(frame, obs, info.get("smiling", False), info.get("elapsed", 0.0),
                               self.window_s)      # never raises
@@ -196,7 +202,12 @@ class StraightRound(FaceRound):
                             extra=info)           # never raises
 
     def run(self, claim_msg: dict) -> dict:
-        return reading_from_straight(claim_msg, self.measure())
+        try:
+            stats = self.measure()
+        except PresageError as exc:
+            return _presage_failure(claim_msg, self.round_id, exc)
+        reading = reading_from_straight(claim_msg, stats)
+        return _apply_presage(self.presage, reading)
 
 
 def reading_from_straight(claim_msg: dict, stats: vision.StraightStats,
@@ -232,7 +243,8 @@ def reading_from_straight(claim_msg: dict, stats: vision.StraightStats,
 # ---------------------------------------------------------------------------
 def build(mock: bool, camera_index: Optional[int] = None, preview: bool = False,
           play_questions: bool = True, seed: Optional[int] = None,
-          max_s: Optional[float] = None, video: Optional[str] = None) -> StraightRound:
+          max_s: Optional[float] = None, video: Optional[str] = None,
+          require_presage: bool = True) -> StraightRound:
     """Real webcam (or video=path) + Haar detector + FaceSignature, or (mock=True, no
     video) scripted frames on a virtual clock. Raises vision.VisionUnavailable."""
     max_s = config.STRAIGHT_MAX_S if max_s is None else float(max_s)
@@ -243,9 +255,12 @@ def build(mock: bool, camera_index: Optional[int] = None, preview: bool = False,
         return StraightRound(cam, vision.FakeDetector(), vision.FakeSignature(), max_s,
                              clock=cam.now, play_questions=play_questions, rng=rng)
     camera, detector, clock = open_source(camera_index, video)
-    return StraightRound(camera, detector, vision.FaceSignature(), max_s, clock=clock,
+    session = _open_presage(camera, require_presage)
+    game = StraightRound(camera, detector, vision.FaceSignature(), max_s, clock=clock,
                          play_questions=play_questions,
                          preview=vision.PreviewWindow(True) if preview else None, rng=rng)
+    game.presage = session
+    return game
 
 
 # ---------------------------------------------------------------------------
