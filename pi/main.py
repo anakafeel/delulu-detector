@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import sqlite3
 import statistics
@@ -74,6 +75,10 @@ def parse_line(line: str) -> Optional[dict]:
             msg["actual"] = float(msg["actual"])
     except (TypeError, ValueError):
         return None
+    # NaN/inf would sail through clamp() and score 100: treat as a garbled line.
+    if not math.isfinite(msg["claim"]) or (
+            msg.get("actual") is not None and not math.isfinite(msg["actual"])):
+        return None
     msg["false_start"] = bool(msg.get("false_start", False))
     msg["timeout"] = bool(msg.get("timeout", False))
     # Optional Round 2 extras: informational, so a bad value is dropped, not fatal.
@@ -104,6 +109,23 @@ def is_sensor_error(reading: dict) -> bool:
     if reading.get("error"):
         return True
     return reading["round_id"] == ROUND_STEADY and reading.get("actual") is None
+
+
+def is_resting(reading: dict) -> bool:
+    """A Round 2 hold so still the sensor must have been set down, not held.
+
+    Below config.STEADY_REST_MG no human hand is that steady (the table reads
+    about 21 mg, a still hand about 68). Rejected in play so "claim 100 and put
+    it on the table" can't take the best gap. --calibrate still shows these.
+    """
+    return (reading["round_id"] == ROUND_STEADY and reading.get("actual") is not None
+            and not reading.get("error") and reading["actual"] < config.STEADY_REST_MG)
+
+
+def report_resting(reading: dict) -> None:
+    print(f"   [rejected] Round 2 tremor {reading['actual']:.1f} mg RMS is below "
+          f"{config.STEADY_REST_MG:g} mg: the sensor was resting, not held. Pick it up and hold it "
+          "in your hand, then press the button again. Not scored or logged.", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +503,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                       f"the Arduino hasn't switched yet. Scoring it as Round {rid}.)")
             if is_sensor_error(reading):
                 report_sensor_error(reading)
+                continue
+            if is_resting(reading):
+                report_resting(reading)
                 continue
             process_reading(reading, args.player, session_id, log, play_audio=not args.no_audio)
     except KeyboardInterrupt:

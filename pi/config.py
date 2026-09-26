@@ -50,16 +50,22 @@ REFLEX_SLOW_MS = 600   # this slow or slower = 0 (linear in between, clamped)
 # Round 2 (Steady Hands): tremor (mg RMS) -> 0-100 performance.
 # The Arduino reports the RMS of each accelerometer sample's deviation from the
 # 5 s window's mean vector, in mg (gravity and orientation drop out).
-# !! STARTING GUESSES, TO BE CALIBRATED ON HARDWARE !! Run
-#    python pi/main.py --round 2 --calibrate
-# with a few very still and a few shaky holds, then set these from the numbers.
-# Our part is the Grove LIS3DHTR (0x19, +-2 g high-res, 1 mg/LSB, 100 Hz). Lying on
-# the table it jitters 3-8 mg sample to sample, i.e. a noise floor of a few mg
-# RMS, so BEST sits just above that: only a near-motionless hold gets 100.
+# Calibrated on hardware 2026-09-26 (Grove LIS3DHTR at 0x19, +-2 g high-res, 100 Hz)
+# with `python pi/main.py --round 2 --calibrate`; raw output is in
+# docs/calibration/round2-2026-09-26.md. One session, one player:
+#    sensor lying on the table (incl. the button press)  ~21 mg RMS
+#    held as still as possible in the hand               ~68 mg RMS
+#    shaken hard                                        ~1494 mg RMS
+# A hand always has some physiological tremor, so anything below STEADY_REST_MG
+# means the sensor was set down, not held: that hold is rejected (not scored,
+# logged or spoken), so "claim 100 and put it on the table" can't win.
+# BEST sits just above REST, so a genuinely steady hand scores in the 90s.
+# Re-run --calibrate with more players before a demo and adjust all three.
 # (Another part, e.g. ADXL345 or MPU-6050, has a different noise floor: recalibrate.)
 # --------------------------------------------------------------------------
-STEADY_BEST_MG = 25.0    # this steady or steadier (mg RMS) = 100   [calibrated 2026-09-26: table ~21, steady hand ~68]
-STEADY_WORST_MG = 500.0  # this shaky or shakier (mg RMS) = 0       [calibrated 2026-09-26: hard shake ~1490]
+STEADY_REST_MG = 30.0    # below this (mg RMS) = sensor resting, not held -> rejected
+STEADY_BEST_MG = 35.0    # this steady or steadier (mg RMS) = 100
+STEADY_WORST_MG = 500.0  # this shaky or shakier (mg RMS) = 0
 
 # Round types the Pi can score, and their display names.
 ROUND_NAMES = {1: "Reflex", 2: "Steady Hands"}
