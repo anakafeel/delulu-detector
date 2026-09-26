@@ -1,56 +1,92 @@
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { ROUND_DEFS } from '../data/roundDefs'
 
-const MARQUEE_TEXT = ROUND_DEFS.map((r) => r.round_name.toUpperCase()).join('   ///   ')
+const MARQUEE_TEXT = ROUND_DEFS.map((round) => round.round_name.toUpperCase()).join('   ///   ')
 
-export default function IdleScreen() {
+export default function IdleScreen({ history = [] }) {
+  const reduceMotion = useReducedMotion()
+  const gaps = history
+    .filter((round) => round.gap !== null && round.gap !== undefined)
+    .map((round) => Number(round.gap))
+    .filter(Number.isFinite)
+  const bestGap = gaps.length ? Math.min(...gaps) : null
+  const averageGap = gaps.length
+    ? Math.round(gaps.reduce((total, gap) => total + gap, 0) / gaps.length)
+    : null
+
   return (
-    <div className="relative flex h-full flex-col items-center justify-center overflow-hidden">
-      <Glow className="left-[8%] top-[15%] bg-claim" delay={0} />
-      <Glow className="right-[10%] top-[55%] bg-reality" delay={2.4} />
-
-      <p className="anim-fade-in-up font-game text-sm uppercase tracking-[0.5em] text-ink-dim">
-        Delulu Detector
-      </p>
-
-      <h1 className="anim-fade-scale-in mt-4 text-center font-display text-6xl leading-tight text-ink [text-shadow:0_0_24px_var(--color-claim),0_0_60px_rgba(34,229,255,0.35)] md:text-7xl">
-        Step up to
-        <br />
-        the rig
-      </h1>
-
-      <div
-        className="anim-fade-in mt-8 flex items-center gap-3 font-game text-lg uppercase tracking-[0.3em] text-ink-dim"
-        style={{ animationDelay: '0.4s' }}
-      >
-        <span>predict yourself. we'll measure the rest.</span>
-        <motion.span
-          className="inline-block h-5 w-3 bg-claim"
-          animate={{ opacity: [1, 1, 0, 0] }}
-          transition={{ duration: 1, repeat: Infinity, times: [0, 0.5, 0.5, 1] }}
-        />
+    <div className="relative grid h-full grid-rows-[auto_1fr_auto] px-6 py-5 sm:px-9 sm:py-7 lg:px-11 lg:py-6">
+      <div className="flex items-center justify-between border-b border-ink-faint/35 pb-3 font-game text-[11px] text-ink-dim">
+        <span className="flex items-center gap-2 font-display text-xs text-reality"><span className="arcade-led" />FREE PLAY</span>
+        <span>Claim <span className="text-claim">/</span> reality</span>
       </div>
 
-      <div className="absolute bottom-10 w-full overflow-hidden border-y border-ink-faint/40 py-3">
-        <motion.div
-          className="flex w-max gap-0 whitespace-nowrap font-display text-sm tracking-[0.35em] text-ink-faint"
-          animate={{ x: ['0%', '-50%'] }}
-          transition={{ duration: 22, repeat: Infinity, ease: 'linear' }}
-        >
-          <span className="px-4">{MARQUEE_TEXT}</span>
-          <span className="px-4">{MARQUEE_TEXT}</span>
-        </motion.div>
+      <div className="grid items-center gap-7 py-6 md:grid-cols-[1fr_0.72fr] lg:gap-10 lg:py-3">
+        <section className="relative z-10">
+          <p className="mb-4 flex items-center gap-2 font-game text-xs font-semibold text-claim"><span className="arcade-led arcade-led-blue" />CONFIDENCE, PUT TO THE TEST</p>
+          <h1 className="font-display text-4xl uppercase leading-[1.08] text-ink sm:text-5xl lg:text-5xl 2xl:text-6xl">
+            How sure
+            <br />
+            are <span className="text-reality">you?</span>
+          </h1>
+          <p className="mt-5 max-w-[30rem] font-sans text-base leading-7 text-ink-dim sm:text-lg">
+            Set a confidence claim, play the round, and compare it with the result.
+          </p>
+
+          <div className="mt-8 border-t border-ink-faint/35 pt-4">
+            <p className="mb-3 font-game text-[10px] font-semibold text-ink-faint">THIS SESSION</p>
+            <div className="grid grid-cols-3 gap-3 sm:gap-5">
+              <Readout label="Scored rounds" value={gaps.length} />
+              <Readout label="Best gap" value={bestGap === null ? '—' : bestGap} suffix={bestGap === null ? '' : ' pts'} />
+              <Readout label="Average gap" value={averageGap === null ? '—' : averageGap} suffix={averageGap === null ? '' : ' pts'} />
+            </div>
+          </div>
+        </section>
+
+        <aside className="narrator-stage relative min-h-[300px] border-4 border-[#334967] sm:min-h-[340px]" aria-label="Narrator stage">
+          <span className="absolute left-4 top-4 font-display text-[10px] font-semibold text-[#334258]">NARRATOR <span className="font-game font-normal">// VOICE REVEAL</span></span>
+          {/* Reserved for the animated narrator character. */}
+        </aside>
       </div>
+
+      <section className="border-t border-ink-faint/35 pt-4" aria-label="Round format">
+        <div className="arcade-readouts grid grid-cols-3 gap-3">
+          <DemoFact value="0-100" label="confidence scale" />
+          <DemoFact value="5 sec" label="steady-hands hold" />
+          <DemoFact value="500" label="samples per hold" />
+        </div>
+        <div className="mt-4 overflow-hidden border-y border-claim/25 py-2" role="img" aria-label={`Available rounds: ${MARQUEE_TEXT}`}>
+          <motion.div
+            className="flex w-max whitespace-nowrap font-display text-[10px] text-ink-dim"
+            animate={reduceMotion ? undefined : { x: ['0%', '-50%'] }}
+            transition={reduceMotion ? undefined : { duration: 26, repeat: Infinity, ease: 'linear' }}
+            aria-hidden="true"
+          >
+            <span className="px-4"><span className="text-reality">FREE PLAY</span> <span className="text-claim">///</span> {MARQUEE_TEXT}</span>
+            <span className="px-4"><span className="text-reality">FREE PLAY</span> <span className="text-claim">///</span> {MARQUEE_TEXT}</span>
+          </motion.div>
+        </div>
+      </section>
     </div>
   )
 }
 
-function Glow({ className, delay }) {
+function Readout({ label, value, suffix = '' }) {
   return (
-    <motion.div
-      className={`absolute h-72 w-72 rounded-full opacity-20 blur-[100px] ${className}`}
-      animate={{ opacity: [0.12, 0.28, 0.12], scale: [1, 1.15, 1] }}
-      transition={{ duration: 6, repeat: Infinity, delay, ease: 'easeInOut' }}
-    />
+    <div className="min-w-0">
+      <div className="font-display text-xl tabular-nums text-ink sm:text-2xl">
+        {value}<span className="font-game text-[10px] font-normal text-ink-faint">{suffix}</span>
+      </div>
+      <div className="mt-1 font-game text-[9px] leading-4 text-ink-dim sm:text-[10px]">{label}</div>
+    </div>
+  )
+}
+
+function DemoFact({ value, label }) {
+  return (
+    <div className="border-l border-ink-faint/50 pl-3">
+      <div className="font-display text-sm tabular-nums text-ink sm:text-base">{value}</div>
+      <div className="mt-1 font-game text-[9px] leading-4 text-ink-dim sm:text-[10px]">{label}</div>
+    </div>
   )
 }

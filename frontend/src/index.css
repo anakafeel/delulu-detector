@@ -1,72 +1,38 @@
 @import "tailwindcss";
 
 @theme {
-  /* surfaces */
-  --color-void: #0a0a0f;
-  --color-surface: #14131c;
-  --color-surface-2: #1c1a26;
+  --color-void: #0b1729;
+  --color-surface: #11233b;
+  --color-surface-2: #1b304d;
 
-  /* ink */
-  --color-ink: #f5f4f0;
-  --color-ink-dim: #8b899a;
-  --color-ink-faint: #4d4b5c;
+  --color-ink: #f1f4f9;
+  --color-ink-dim: #b4bfd0;
+  --color-ink-faint: #7787a0;
 
-  /* fixed roles: claim vs reality, always labeled, never used interchangeably */
-  --color-claim: #22e5ff;
-  --color-reality: #b45cff;
+  --color-claim: #83d5ed;
+  --color-reality: #b99bea;
 
-  /* status scale (gap severity) - reserved, always paired with a number/verdict */
-  --color-good: #22c55e;
-  --color-warning: #eab308;
-  --color-serious: #f97316;
-  --color-critical: #ef233c;
+  --color-good: #8edab0;
+  --color-warning: #efc66e;
+  --color-serious: #ed956f;
+  --color-critical: #ed7882;
 
   --font-display: "Bungee", system-ui, sans-serif;
   --font-game: "JetBrains Mono", ui-monospace, monospace;
 }
 
 html, body, #root {
-  height: 100%;
+  min-height: 100%;
   margin: 0;
 }
 
 body {
   background: var(--color-void);
   color: var(--color-ink);
-  font-family: var(--font-game);
-  overflow: hidden;
-  cursor: none;
-}
-
-/* Faint scanline texture only — no blend mode, no vignette. A blended
-   vignette here measurably tanked text contrast (verified against a booth
-   display's "readable from a few feet away" requirement), so this stays
-   a plain, low-opacity overlay that can never darken content underneath. */
-.crt-overlay {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 50;
-  background: repeating-linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0.02) 0px,
-    rgba(255, 255, 255, 0.02) 1px,
-    transparent 1px,
-    transparent 3px
-  );
-}
-
-@keyframes drift {
-  from { background-position: 0 0; }
-  to { background-position: 200px 200px; }
-}
-
-.void-grid {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 44px 44px;
-  animation: drift 18s linear infinite;
+  font-family: system-ui, sans-serif;
+  overflow-x: hidden;
+  overflow-y: auto;
+  cursor: auto;
 }
 
 ::selection {
@@ -74,12 +40,87 @@ body {
   color: var(--color-void);
 }
 
-/* Mount-triggered enter animations, in plain CSS. A JS animation library's
-   declarative initial->animate transition silently never fired in this
-   environment (verified with the simplest possible case — no console error,
-   no visible cause), so anything that gates visibility (the reveal's verdict
-   text, most of all) uses CSS keyframes instead: they replay automatically
-   whenever a fresh element is inserted, no JS coordination required. */
+.app-shell {
+  background-image: linear-gradient(125deg, #0b1729 0%, #102849 52%, #18244b 100%);
+}
+
+.game-screen {
+  background-image: linear-gradient(135deg, #122a49 0%, #10223d 56%, #1b2850 100%);
+  position: relative;
+}
+
+.game-screen::before {
+  position: absolute;
+  z-index: 20;
+  inset: 8px;
+  border: 1px solid rgba(131, 213, 237, 0.16);
+  content: "";
+  pointer-events: none;
+}
+
+.arcade-led {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--color-reality);
+  box-shadow: 0 0 0 2px rgba(185, 155, 234, 0.18);
+}
+
+.arcade-led-blue {
+  background: var(--color-claim);
+  box-shadow: 0 0 0 2px rgba(131, 213, 237, 0.18);
+}
+
+.narrator-stage {
+  background-color: #e8edf5;
+  color: #28364c;
+}
+
+.widget-close {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  color: var(--color-ink-dim);
+  font-family: system-ui, sans-serif;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.widget-close:hover {
+  border-color: var(--color-ink-faint);
+  background: var(--color-surface-2);
+  color: var(--color-ink);
+}
+
+.widget-close:focus-visible,
+.widget-restore:focus-visible {
+  outline: 2px solid var(--color-claim);
+  outline-offset: 2px;
+}
+
+.widget-restore {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--color-ink-faint);
+  padding: 0 10px;
+  color: var(--color-ink-dim);
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.widget-restore:hover {
+  border-color: var(--color-claim);
+  color: var(--color-ink);
+}
+
+/* Mount-triggered enter animations replay when a fresh screen is inserted. */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -131,15 +172,6 @@ body {
   animation: flash-fade 0.5s ease-out both;
 }
 
-@keyframes dot-pop-in {
-  from { transform: scale(0); }
-  to { transform: scale(1); }
-}
-.chart-dot {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: dot-pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
 
 @keyframes shake {
   0% { transform: translateX(0); }
