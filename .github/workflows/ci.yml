@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pi-tests:
+    name: Pi tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pi/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r pi/requirements.txt pytest
+
+      - name: Run tests
+        # No ElevenLabs key in CI; the tests fake the network anyway.
+        env:
+          ELEVENLABS_API_KEY: ""
+        run: python -m pytest pi/tests -q
+
+  arduino-compile:
+    name: Compile sketch (Uno + UNO R4 WiFi)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Install cores
+        # arduino:renesas_uno bundles the Arduino_LED_Matrix library.
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr arduino:renesas_uno
+
+      - name: Compile for classic Uno
+        run: arduino-cli compile --fqbn arduino:avr:uno arduino/delulu_gauntlet
+
+      - name: Compile for UNO R4 WiFi
+        run: arduino-cli compile --fqbn arduino:renesas_uno:unor4wifi arduino/delulu_gauntlet
