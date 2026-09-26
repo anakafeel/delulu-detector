@@ -25,3 +25,6 @@ arduino/**/build/
 
 # Half-written fallback mp3 from an interrupted pi/make_fallbacks.py run
 assets/*.part
+# Generated narrator clips (python pi/make_fallbacks.py): regenerate on each
+# machine with your own ElevenLabs key instead of committing them.
+assets/*.mp3

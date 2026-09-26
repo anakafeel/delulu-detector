@@ -72,6 +72,8 @@ python pi/make_fallbacks.py               # generates the missing files in asset
 
 Existing files are skipped; `--force` regenerates them, `--only 'fallback_round2_*'` limits it to matching file names, and `--round 1` or `--round 2` to the files that round can play. On an HTTP or network error it stops with a non-zero exit code and an error message (the key is never printed); re-running keeps the files that were already written. **Listen to every generated mp3 once** before the demo, since TTS sometimes mispronounces a word or reads a line oddly. If one sounds wrong, regenerate it with `--only <file> --force`.
 
+The clips are **not committed** (`assets/*.mp3` is gitignored), so every machine that runs the game has to generate its own, **including the demo Pi**. Without them the narrator falls back to text only when the API is slow or down. The record of the test laptop run is in [`docs/calibration/fallback-clips-2026-09-26.md`](docs/calibration/fallback-clips-2026-09-26.md).
+
 If one round fails on the Pi (for example the SQLite write fails, the mp3 can't be written or audio playback breaks), `main.py` prints an `[error]` line and keeps listening for the next round.
 
 ## Round 2: Steady Hands
