@@ -22,7 +22,13 @@ export default function RevealMoment({ result }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.round_id])
 
-  if (!result || !severity) return null
+  if (!result || !severity) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center">
+        <QuietLine label="Scoring" />
+      </div>
+    )
+  }
 
   const amplitude = SHAKE_AMPLITUDE[severity.key]
   const verdictText = visibleVerdict(result)
@@ -53,14 +59,27 @@ export default function RevealMoment({ result }) {
 
         <GapBadge gap={result.gap} color={severity.color} tag={severity.tag} />
 
-        <p
-          className="anim-stamp-in max-w-2xl px-4 font-display text-4xl leading-tight text-ink md:text-5xl"
-          style={{ textShadow: `0 0 30px ${severity.color}` }}
-        >
-          {verdictText}
-        </p>
+        {verdictText ? (
+          <p
+            className="anim-stamp-in max-w-2xl px-4 font-display text-4xl leading-tight text-ink md:text-5xl"
+            style={{ textShadow: `0 0 30px ${severity.color}` }}
+          >
+            {verdictText}
+          </p>
+        ) : (
+          <QuietLine label="Scoring" />
+        )}
       </div>
     </div>
+  )
+}
+
+function QuietLine({ label }) {
+  return (
+    <p className="flex items-center gap-3 font-game text-sm uppercase tracking-[0.45em] text-ink-dim">
+      <span className="quiet-pulse inline-block h-2 w-2 rounded-full bg-reality" />
+      {label}
+    </p>
   )
 }
 

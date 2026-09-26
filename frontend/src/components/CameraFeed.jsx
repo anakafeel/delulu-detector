@@ -62,8 +62,8 @@ export default function CameraFeed({ camera, isPerforming }) {
           </span>
         )}
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
-        <Readout camera={failed ? null : current} />
+      <div key={readoutKey(current, isPerforming)} className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center anim-fade-in">
+        <Readout camera={failed ? null : current} isPerforming={isPerforming} />
       </div>
     </div>
   )
@@ -99,16 +99,29 @@ function PreviewFrame() {
   )
 }
 
-function Readout({ camera }) {
+function readoutKey(camera, isPerforming) {
+  if (!camera) return 'none'
+  if (camera.mode === 'scoring') return 'scoring'
+  if (isPerforming && camera.mode !== 'measuring' && camera.mode !== 'preview') return 'scoring'
+  if (camera.mode === 'measuring' && camera.kind !== 'straight' && (camera.composure == null)) return 'reading'
+  return camera.mode || 'camera'
+}
+
+function Readout({ camera, isPerforming }) {
   if (!camera) return <p className="h-6" />
+  if (camera.mode === 'scoring') return <LoadingReadout label="Reading the face" detail="Scoring" />
+  // Claim locked, window already closed, reveal not up yet: don't fall through to an empty line.
+  if (isPerforming && camera.mode !== 'measuring' && camera.mode !== 'preview') {
+    return <LoadingReadout label="Scoring" />
+  }
   if (camera.mode === 'measuring' && camera.kind === 'straight') return <StraightReadout camera={camera} />
   if (camera.mode === 'measuring') {
     const composure = camera.composure
-    const text = composure === null || composure === undefined ? '--' : Math.round(composure)
+    if (composure === null || composure === undefined) return <LoadingReadout label="Reading the face" />
     return (
       <p className="h-6 font-game text-sm uppercase tracking-[0.3em] text-ink-dim">
         Composure{' '}
-        <span className="text-lg font-bold tabular-nums text-reality">{text}</span>
+        <span className="text-lg font-bold tabular-nums text-reality">{Math.round(composure)}</span>
       </p>
     )
   }
@@ -120,6 +133,16 @@ function Readout({ camera }) {
     )
   }
   return <p className="h-6 font-game text-sm uppercase tracking-[0.3em] text-ink-faint">Camera starts with the round</p>
+}
+
+function LoadingReadout({ label, detail }) {
+  return (
+    <p className="flex h-6 items-center gap-2 font-game text-sm uppercase tracking-[0.3em] text-ink-dim">
+      <span className="quiet-pulse inline-block h-1.5 w-1.5 rounded-full bg-reality" />
+      {label}
+      {detail ? <span className="text-ink-faint">· {detail}</span> : null}
+    </p>
+  )
 }
 
 // Straight Face: a neutral-face baseline, then a running timer until the face changes.
