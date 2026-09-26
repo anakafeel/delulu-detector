@@ -482,6 +482,12 @@ def describe_reality(result: RoundResult) -> str:
             details.append(f"{samples} samples")
         extra = f" ({', '.join(details)})" if details else ""
         return f"{result.actual:.1f} mg RMS tremor{extra} -> performance {result.performance:.0f}"
+    if result.unit == "composure":
+        e = result.extra
+        frames = e.get("frames")
+        fps = e.get("fps")
+        detail = f" ({frames} frames @ {float(fps or 0):.1f} fps)" if frames is not None else ""
+        return f"composure {result.actual:.1f}{detail} -> score {result.performance:.0f}"
     if result.round_id == ROUND_POKER:
         e = result.extra
         first = e.get("first_smile_ms")
@@ -774,6 +780,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                   f"difference scores, nothing scored or logged) | min diff {config.STRAIGHT_MIN_DIFF:g}, "
                   f"k {config.STRAIGHT_K:g}, hold {config.STRAIGHT_HOLD_FRAMES} frames | up to {poker.window_s:g} s")
         else:
+            print("   --calibrate records the legacy OpenCV smile fraction only. "
+                  "A live face round is scored by Presage. Center the face in the camera; "
+                  "that position is the pre-demo check, not these smile numbers.")
             print(f"The Tell | CALIBRATION ({round_title(ROUND_POKER)}: raw smile_frac, nothing scored or "
                   f"logged) | thresholds best {config.POKER_BEST_FRAC:g} / worst {config.POKER_WORST_FRAC:g} "
                   f"smile_frac | window {poker.window_s:g} s")
@@ -800,6 +809,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     ui, ui_srv = start_ui(args, session_id, log)
     if ui is not None and poker is not None and (not args.mock or args.video):
         attach_camera_feed(ui, ui_srv, poker)
+    if ui is not None and poker is not None:
+        poker.on_prompt = ui.question_text
+        poker.on_prompt_fail = ui.question_unavailable
 
     try:
         for line in source:
@@ -937,15 +949,15 @@ def _print_poker_setup(poker: poker_round.FaceRound, args) -> None:
     if poker.round_id == ROUND_STRAIGHT:
         n = len(poker.question_files())
         q = ("questions off (--no-audio)" if not poker.play_questions else
-             f"{n} rapid-fire question clip(s) in assets/questions/" if n else
-             "no pressure_XX.mp3 question clips")
+             f"{n} saved question clip(s)" if n and poker.questions_dir is not None else
+             "live ElevenLabs questions")
         print(f"{round_title(ROUND_STRAIGHT)}: {cam} | up to {poker.window_s:g} s (dial 100 = "
               f"{poker.window_s:g} s) | {q}{preview}")
         return
     n = len(poker_round.joke_files(poker.jokes_dir))
     q = ("question off (--no-audio)" if not poker.play_jokes else
-         f"{n} interview-question clip(s)" if n else
-         "no poker_XX.mp3 question clips")
+         f"{n} saved question clip(s)" if n and poker.jokes_dir is not None else
+         "one live ElevenLabs question")
     print(f"{round_title(ROUND_POKER)}: {cam} | window {poker.window_s:g} s | {q}{preview}")
 
 

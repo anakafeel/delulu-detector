@@ -4,12 +4,11 @@
 // `label` is the round number shown on screen (Round 1 / 2 / 3, PRD order);
 // `round_id` is the string id used everywhere in this app.
 // actual_unit is appended straight after the raw value on the reveal
-// ("287ms", "12.5% smiling", "6.4 s held"), so it carries its own spacing.
+// ("287ms", "36 composure"), so it carries its own spacing.
 // Real units, from the Pi backend:
 //   Reflex         reaction time in ms (150 ms or faster = 100, 600 ms or slower = 0)
-//   Poker Face     % of face frames with a smile over a 6 s webcam window (3% or less = 100, 40% or more = 0)
-//   Straight Face  seconds until the face visibly changed under rapid-fire questions
-//                  (dial 0-100 = 0-claim_max_s seconds, 20 s by default; the Pi sends the real max)
+//   Poker Face     Presage composure, 0-100, over a 6 s webcam window
+//   Straight Face  the same Presage composure, 0-100, while questions play
 // Legacy rounds (cut from The Tell, `legacy: true`) stay here only so old session
 // rows still render; they're left out of GAME_ROUNDS (idle marquee).
 export const ROUND_DEFS = [
@@ -29,19 +28,19 @@ export const ROUND_DEFS = [
     round_name: 'Poker Face',
     prompt: 'Claimed poker face going into a tough interview question',
     uses_camera: true,
-    actual_unit: '% smiling',
-    actual_label: 'time spent smiling',
+    actual_unit: ' composure',
+    actual_label: 'composure',
   },
   {
     round_id: 'straight_face',
     number: 6,
     label: 3,
     round_name: 'Straight Face Under Pressure',
-    prompt: 'Claimed seconds of straight face under rapid-fire questions',
+    prompt: 'Claimed composure through rapid-fire questions',
     uses_camera: true,
     claim_max_s: 20,
-    actual_unit: ' s held',
-    actual_label: 'seconds until the face changed',
+    actual_unit: ' composure',
+    actual_label: 'composure',
   },
   {
     round_id: 'steady_hands',

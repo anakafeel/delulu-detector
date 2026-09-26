@@ -241,13 +241,13 @@ def _round(windows, **kw):
 
 
 def test_round_run_stops_the_questions_and_signals_the_change(tmp_path):
-    q = config.QUESTIONS_DIR
-    q.mkdir(parents=True)
+    q = tmp_path / "questions"
+    q.mkdir()
     for i in (1, 2):
         (q / f"pressure_{i:02d}.mp3").write_bytes(b"x")
     procs = []
     changes = []
-    rnd, cam = _round([script(change_at_s=4.0)], play_questions=True,
+    rnd, cam = _round([script(change_at_s=4.0)], play_questions=True, questions_dir=q,
                       start_audio_fn=lambda p: procs.append(FakeProc(p, finished=False)) or procs[-1],
                       stop_audio_fn=lambda proc: setattr(proc, "killed", True),
                       on_change=lambda t, why: changes.append(why))

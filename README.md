@@ -142,7 +142,7 @@ A real Poker Face or Straight Face round (`--round 5` or `--round 6`, with the w
 - OpenCV still finds the face and draws the face box (and the smile box when the smile cascade fires). A face in fewer than half the frames is still `no_face`: not scored, logged or spoken.
 - A Presage error (bridge failed to start, timeout, SDK error, or a window with no sample) is not scored, logged or spoken, and no number is invented. The console says Presage did not return a composure reading.
 
-`--mock` and `--calibrate` do not start the bridge.
+`--mock` and `--calibrate` do not start the bridge. `--calibrate` is the legacy OpenCV smile and frame-diff printout. It does not tune Presage. The pre-demo check for a live face round is camera position: the whole face, chin included, centered in the frame. Presage reports that as a validation hint (`Move up` / `Move down`) and does not score a window with no composure sample.
 
 ## Round 2: Poker Face
 
@@ -327,7 +327,7 @@ cd pi/presage && npm install && cd ../..          # SmartSpectra bridge for live
 cp .env.example .env                             # then set ELEVENLABS_API_KEY and SMARTSPECTRA_API_KEY
 sudo usermod -aG dialout $USER                   # serial port access (log out and back in)
 ```
-The code reads `ELEVENLABS_API_KEY` and `SMARTSPECTRA_API_KEY` from the environment or from `.env` (`PRESAGE_API_KEY` is accepted for Presage). Never commit `.env`. Live face rounds need the Presage key and the bridge install above. `--mock`, `--calibrate` and Reflex do not. Interview-question mp3s under `assets/questions/` are optional; if they are missing, the prompt is silent.
+The code reads `ELEVENLABS_API_KEY` and `SMARTSPECTRA_API_KEY` from the environment or from `.env` (`PRESAGE_API_KEY` is accepted for Presage). Never commit `.env`. Live face rounds need the Presage key and the bridge install above. `--mock`, `--calibrate` and Reflex do not. Interview questions are spoken live by ElevenLabs when the window starts. If that call fails, the screen says "question unavailable" and no file is played.
 
 ## Run
 
@@ -368,7 +368,7 @@ python pi/main.py --mock --player Tester --ui                # simulated rounds 
 ```
 `pi/ui_server.py` (stdlib only) runs in a background thread: `GET /api/state` is the current state as JSON, `GET /api/events` pushes it on every change (Server-Sent Events; while the knob turns only a small `event: dial` with `{"liveClaim": N}` is pushed, not the whole state with history), and `/` serves `frontend/dist`, so the venue needs no Node. A UI problem is reported once and never stops a round; if the port is taken the game runs without the UI. Flags: `--ui-port` (default 8765), `--ui-host` (default 127.0.0.1; `0.0.0.0` to open it from another device on the network). Timings (how long the reveal stays up, when it falls back to the idle screen) are `UI_*` in `pi/config.py`.
 
-To work on the frontend, run the Python side with `--ui` and `cd frontend && npm run dev`; Vite proxies `/api` to port 8765 (`DELULU_API=http://host:port npm run dev` for another address). The browser UI is live-only. There is no built-in page simulator. Use `python pi/main.py --mock --ui` when you want simulated rounds without the Arduino.
+To work on the frontend with no Arduino and no camera, `cd frontend && npm run dev:preview` and open the Vite URL. The pages walk idle, dial, measuring, and reveal on their own. Keys `1` `2` `3` `4` pin one of those screens, and `0` resumes the walk. `?preview=1` on a built page does the same thing. That mode never talks to the game. For a real round, run the Python side with `--ui` and `cd frontend && npm run dev`; Vite proxies `/api` to port 8765 (`DELULU_API=http://host:port npm run dev` for another address).
 
 ## Tests
 ```bash

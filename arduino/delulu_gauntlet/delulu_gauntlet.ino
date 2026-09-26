@@ -111,7 +111,7 @@
 #define PRESS_CONFIRM_MAX_MS  30     // give up if PRESS_CONFIRM_MS of contact isn't reached this soon
 #define BUZZER_FREQ_HZ        2000
 #define BUZZER_MS             120
-#define DIAL_ADC_MAX          1023   // raise/lower if your pot doesn't hit the rails
+#define DIAL_ADC_MAX          700    // this Grove angle sensor tops out near ADC 706 (claim 69 on a 1023 scale). 700 maps that stop to 100.
 #define DIAL_SAMPLE_MS        10     // live dial: sample the pot this often while waiting for a claim
 #define DIAL_SMOOTH_DIV       8      // exponential smoothing, new sample weight 1/8 (~80 ms time constant)
 #define DIAL_REPORT_MS        100    // at most one {"type":"dial"} line this often

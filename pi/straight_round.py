@@ -34,8 +34,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import config
+import elevenlabs_client as ec
 import vision
-from poker_round import (FaceRound, PresageError, _apply_presage, _open_presage,
+from poker_round import (FaceRound, LivePrompt, PresageError, _apply_presage, _open_presage,
                          _presage_failure, open_source, question_files, start_audio,
                          stop_audio, window_line)
 from scoring import ROUND_STRAIGHT, claim_to_seconds
@@ -165,7 +166,12 @@ class StraightRound(FaceRound):
             self.feed.begin("measuring", self.window_s, kind="straight")     # never raises
         try:
             self.camera.begin_window()
-            if self.play_questions:
+            if self.play_questions and self.questions_dir is None:
+                barrage = LivePrompt(ec.PRESSURE_QUESTION_LINES, self.rng, self._start_audio,
+                                     self._stop_audio, on_text=self.on_prompt, on_fail=self.on_prompt_fail,
+                                     repeat=True).start()
+                self.last_live = barrage
+            elif self.play_questions:
                 barrage = QuestionBarrage(self.question_files(), self._start_audio, self._stop_audio,
                                           rng=self.rng).start()
                 self.last_barrage = barrage
@@ -173,6 +179,9 @@ class StraightRound(FaceRound):
             def changed(t: float, trigger: str) -> None:
                 if barrage is not None:
                     barrage.stop()                # the gotcha: silence, then the verdict
+                live = getattr(self, "last_live", None)
+                if live is not None:
+                    live.stop()
                 if self.on_change is not None:
                     self.on_change(t, trigger)
 
@@ -183,6 +192,9 @@ class StraightRound(FaceRound):
         finally:
             if barrage is not None:
                 barrage.join()
+            live = getattr(self, "last_live", None)
+            if live is not None and live is not barrage:
+                live.join()
             if self.preview is not None:
                 self.preview.close()
             if self.feed is not None:

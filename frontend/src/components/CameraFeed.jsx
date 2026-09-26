@@ -42,7 +42,9 @@ export default function CameraFeed({ camera, isPerforming }) {
           boxShadow: placeholder ? 'none' : `inset 0 0 0 2px ${accent}`,
         }}
       >
-        {placeholder ? (
+        {current?.previewFrame ? (
+          <PreviewFrame />
+        ) : placeholder ? (
           <div className="flex h-full items-center justify-center p-6 text-center font-game text-xs uppercase tracking-[0.25em] text-ink-faint">
             {placeholder}
           </div>
@@ -86,6 +88,14 @@ function MjpegImage({ src, onError }) {
       className="h-full w-full object-contain"
       draggable={false}
     />
+  )
+}
+
+function PreviewFrame() {
+  return (
+    <div className="relative h-full w-full bg-[radial-gradient(circle_at_50%_42%,#3a3428_0%,#12110f_62%)]">
+      <div className="absolute left-1/2 top-[38%] h-[46%] w-[34%] -translate-x-1/2 rounded-[40%] border-2 border-reality/80" />
+    </div>
   )
 }
 

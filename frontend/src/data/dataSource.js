@@ -13,6 +13,7 @@
 // served by the Python server itself, so /api is same-origin there.
 // VITE_API_BASE (e.g. http://192.168.1.20:8765) points at a Pi elsewhere.
 import { toUiState } from './liveAdapter'
+import { previewEnabled, subscribePreview } from './previewSource'
 
 export const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 const POLL_MS = 1000
@@ -44,6 +45,7 @@ function keepLiveCamera(prev, next) {
 }
 
 export function subscribe(callback) {
+  if (previewEnabled()) return subscribePreview(callback)
   let closed = false
   let last = null
   let pollTimer = null

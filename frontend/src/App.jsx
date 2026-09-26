@@ -7,7 +7,15 @@ import Leaderboard from './components/Leaderboard'
 import CalibrationCurve from './components/CalibrationCurve'
 import ClaimAnnouncer from './components/ClaimAnnouncer'
 
-const CONNECTION_LABEL = { live: 'Live', offline: 'Offline' }
+const CONNECTION_LABEL = { live: 'Live', offline: 'Offline', preview: 'Preview' }
+
+function PreviewKeys() {
+  return (
+    <p className="pointer-events-none absolute left-4 top-4 z-30 font-game text-[10px] uppercase tracking-[0.2em] text-ink-dim">
+      Preview, no hardware. Keys 1 idle, 2 dial, 3 measure, 4 reveal, 0 auto.
+    </p>
+  )
+}
 
 function Stage({ state }) {
   switch (state.screen) {
@@ -38,11 +46,12 @@ export default function App() {
 
   if (cameraFull) {
     return (
-      <div className="fixed inset-0 z-20 h-full w-full bg-black">
-        <div className="relative h-full w-full">
+      <div className="fixed inset-0 z-20 flex items-center justify-center bg-void p-8">
+        <div className="relative h-[82vh] w-[82vw] overflow-hidden rounded-2xl border border-ink-faint/30 bg-black">
           <Stage state={state} />
         </div>
         <ClaimAnnouncer screen={state.screen} liveClaim={state.liveClaim} />
+        {state.preview && <PreviewKeys />}
         {state.notice && (
           <p className="anim-fade-in absolute inset-x-6 bottom-16 z-30 rounded-md border border-critical/60 bg-surface px-4 py-2 text-center font-game text-sm text-critical">
             {state.notice.message}
@@ -68,6 +77,7 @@ export default function App() {
             transition={{ duration: 1.4, repeat: Infinity }}
           />
           {CONNECTION_LABEL[state.connection] ?? 'Connecting'}
+          {state.preview && <PreviewKeys />}
         </span>
       </header>
 

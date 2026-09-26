@@ -145,6 +145,105 @@ def joke_files(jokes_dir: Optional[Path] = None) -> list[Path]:
     return question_files("poker") or _mp3s(config.JOKES_DIR)
 
 
+class LivePrompt:
+    """Speak interview lines through a live ElevenLabs call. No stand-in mp3.
+
+    One question when repeat is false (Poker Face). Back to back when repeat
+    is true (Straight Face). A failed call is printed and reported; nothing
+    else is played.
+    """
+
+    def __init__(self, lines: list[str], rng: random.Random,
+                 start_audio_fn: Optional[Callable[[Path], object]] = None,
+                 stop_audio_fn: Optional[Callable[[object], None]] = None,
+                 on_text: Optional[Callable[[str], None]] = None,
+                 on_fail: Optional[Callable[[], None]] = None,
+                 repeat: bool = False,
+                 synthesize_fn: Optional[Callable[[str, Path], Path]] = None):
+        self.lines = list(lines)
+        self.rng = rng
+        self._start_audio = start_audio if start_audio_fn is None else start_audio_fn
+        self._stop_audio = stop_audio if stop_audio_fn is None else stop_audio_fn
+        self.on_text = on_text
+        self.on_fail = on_fail
+        self.repeat = repeat
+        self._synthesize = synthesize_fn or _synthesize_question
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._proc = None
+        self._thread: Optional[threading.Thread] = None
+        self.spoken: list[str] = []
+        self.failures: list[str] = []
+
+    def start(self) -> "LivePrompt":
+        if self.lines and self._thread is None:
+            self._thread = threading.Thread(target=self._run, name="tell-live-question", daemon=True)
+            self._thread.start()
+        return self
+
+    def _run(self) -> None:
+        last = None
+        while not self._stop.is_set():
+            choices = [line for line in self.lines if line != last] or self.lines
+            text = self.rng.choice(choices)
+            last = text
+            print(f'   QUESTION: "{text}"')
+            if self.on_text is not None:
+                try:
+                    self.on_text(text)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"   [warn] question text hook failed: {exc}", file=sys.stderr)
+            out = config.TTS_OUTPUT_DIR / f"question_{time.time_ns()}.mp3"
+            try:
+                path = self._synthesize(text, out)
+            except ec.TTSError as exc:
+                self.failures.append(str(exc))
+                print(f"   [error] question unavailable ({exc})", file=sys.stderr)
+                if self.on_fail is not None:
+                    try:
+                        self.on_fail()
+                    except Exception as hook_exc:  # noqa: BLE001
+                        print(f"   [warn] question fail hook failed: {hook_exc}", file=sys.stderr)
+                if not self.repeat:
+                    return
+                continue
+            if self._stop.is_set():
+                return
+            proc = self._start_audio(path)
+            with self._lock:
+                self._proc = proc
+            self.spoken.append(text)
+            poll = getattr(proc, "poll", None) if proc is not None else None
+            while poll is not None and poll() is None and not self._stop.is_set():
+                self._stop.wait(0.05)
+            with self._lock:
+                self._proc = None
+            self._stop_audio(proc)
+            if not self.repeat or self._stop.is_set():
+                return
+            self._stop.wait(config.STRAIGHT_QUESTION_GAP_S)
+
+    def stop(self) -> None:
+        self._stop.set()
+        with self._lock:
+            proc, self._proc = self._proc, None
+        if proc is not None:
+            try:
+                self._stop_audio(proc)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def join(self, timeout: float = 2.0) -> None:
+        self.stop()
+        if self._thread is not None:
+            self._thread.join(timeout)
+            self._thread = None
+
+
+def _synthesize_question(text: str, out: Path) -> Path:
+    return ec.synthesize(text, out)
+
+
 def start_audio(path: Path) -> Optional[subprocess.Popen]:
     """Start playing an mp3 without waiting for it. None if there's no player or it won't start."""
     cmd = ec.find_player_cmd()
@@ -197,6 +296,8 @@ class FaceRound:
         self._stop_audio = stop_audio_fn
         self.feed = None                      # camera_feed.CameraFeed (browser stream), set by attach_feed
         self.presage = None                   # PresageSession; real rounds set this, mock rounds do not
+        self.on_prompt = None                 # (text) -> None, the live question line
+        self.on_prompt_fail = None           # () -> None, ElevenLabs did not speak it
         self._cam_lock = threading.Lock()     # measure() and the idle preview never read at once
         self._measuring = threading.Event()
         self._stop = threading.Event()
@@ -328,13 +429,18 @@ class PokerRound(FaceRound):
 
     def _measure_locked(self) -> vision.WindowStats:
         joke_proc = None
+        self.last_live = None
         wants_preview = self.preview is not None and self.preview.enabled
         on_frame = self._on_frame if (wants_preview or self.feed is not None or self.presage is not None) else None
         if self.feed is not None:
             self.feed.begin("measuring", self.window_s)     # never raises
         try:
             self.camera.begin_window()
-            if self.play_jokes:
+            if self.play_jokes and self.jokes_dir is None:
+                live = LivePrompt(ec.POKER_QUESTION_LINES, self.rng, self._start_audio, self._stop_audio,
+                                  on_text=self.on_prompt, on_fail=self.on_prompt_fail).start()
+                self.last_live = live
+            elif self.play_jokes:
                 joke = self._pick_joke()
                 if joke is not None:
                     self.last_joke = joke
@@ -342,6 +448,9 @@ class PokerRound(FaceRound):
             return vision.measure_window(self.camera, self.detector, self.window_s,
                                          clock=self.clock, on_frame=on_frame)
         finally:
+            live = getattr(self, "last_live", None)
+            if live is not None:
+                live.join()
             self._stop_audio(joke_proc)
             if self.preview is not None:
                 self.preview.close()

@@ -5,7 +5,7 @@
 import { roundById, roundByNumber } from './roundDefs'
 
 // Fallback display units for the Pi's raw unit codes, if a round isn't in roundDefs.
-const UNIT_SUFFIX = { ms: 'ms', mg_rms: ' mg RMS', smile_pct: '% smiling', s: ' s held', composure: '' }
+const UNIT_SUFFIX = { ms: 'ms', mg_rms: ' mg RMS', smile_pct: '% smiling', s: ' s held', composure: ' composure' }
 
 function defFor(key, number) {
   return roundById(key) ?? roundByNumber(number) ?? null
@@ -44,7 +44,8 @@ export function toUiResult(r) {
     claim: Math.round(r.claim ?? 0),
     actual: scored ? Math.round(r.actual ?? 0) : 0,
     actual_raw: scored ? r.actual_raw : failedLabel(r),
-    actual_unit: scored ? (def?.actual_unit ?? UNIT_SUFFIX[r.actual_unit] ?? r.actual_unit ?? '') : '',
+    // The Pi's unit is what was scored. The round def is only a fallback.
+    actual_unit: scored ? (UNIT_SUFFIX[r.actual_unit] ?? def?.actual_unit ?? r.actual_unit ?? '') : '',
     gap: scored ? Math.round(r.gap) : 100,
     verdict_text: r.verdict_text ?? '',
   }

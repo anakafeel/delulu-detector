@@ -439,6 +439,20 @@ class GameState:
             self._changed()
 
     @_crash_safe
+    def question_text(self, text: str) -> None:
+        """The live interview question, shown while ElevenLabs speaks it."""
+        with self._cond:
+            self._notice(str(text), "info")
+            self._changed()
+
+    @_crash_safe
+    def question_unavailable(self) -> None:
+        """The question call failed. No stand-in audio is played."""
+        with self._cond:
+            self._notice("question unavailable", "error")
+            self._changed()
+
+    @_crash_safe
     def round_rejected(self, message: str) -> None:
         """A round that wasn't scored (sensor error, sensor resting, camera trouble)."""
         with self._cond:

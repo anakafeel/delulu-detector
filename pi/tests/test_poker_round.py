@@ -230,6 +230,23 @@ def test_full_round_plays_a_joke_and_stops_it_after_the_window(tmp_path):
     assert r.performance == pytest.approx(12.5) and r.tier == "delulu" and r.direction == "over"
 
 
+def test_live_question_failure_does_not_play_a_file(tmp_path, monkeypatch):
+    def boom(text, out):
+        raise ec.TTSError("timeout")
+
+    monkeypatch.setattr(poker_round, "_synthesize_question", boom)
+    cam = FakeCamera([[F] * 8], fps=10)
+    audio = _Audio()
+    pr = PokerRound(cam, FakeDetector(), 0.4, clock=cam.now, play_jokes=True,
+                    start_audio_fn=audio.start, stop_audio_fn=audio.stop)
+    failed = []
+    pr.on_prompt_fail = lambda: failed.append("question unavailable")
+    pr.run({"claim": 40, "seq": 1})
+    assert audio.started == []
+    assert failed == ["question unavailable"]
+    assert pr.last_live.failures
+
+
 def test_no_joke_files_is_silently_skipped(tmp_path):
     pr, audio = _poker([[F] * 10], tmp_path)
     assert pr.run({"claim": 50})["smile_frac"] == 0.0
