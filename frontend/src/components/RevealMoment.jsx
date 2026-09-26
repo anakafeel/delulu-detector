@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import confetti from 'canvas-confetti'
 import { severityFor } from '../data/severity'
 import { useCountUp } from '../hooks/useCountUp'
+import DeluluCharacter from './DeluluCharacter' // Import the character
+
 
 const SHAKE_AMPLITUDE = { good: 0, warning: 4, serious: 9, critical: 16 }
 const CONFETTI_COUNT = { good: 90, warning: 70, serious: 110, critical: 160 }
@@ -69,6 +71,14 @@ export default function RevealMoment({ result }) {
         ) : (
           <QuietLine label="Scoring" />
         )}
+        {/* Add the character reaction here */}
+        <div className="mt-8">
+          <DeluluCharacter 
+            tier={severity.key} 
+            speaking={true} 
+            size={140} 
+            />
+        </div>
       </div>
     </div>
   )

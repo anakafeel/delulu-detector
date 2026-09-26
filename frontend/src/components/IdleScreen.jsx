@@ -1,5 +1,7 @@
 import { motion } from 'motion/react'
 import { GAME_ROUNDS } from '../data/roundDefs'
+import DeluluCharacter from './DeluluCharacter'
+
 
 const MARQUEE_TEXT = GAME_ROUNDS.map((r) => `ROUND ${r.label}: ${r.round_name.toUpperCase()}`).join('   ///   ')
 
@@ -18,6 +20,17 @@ export default function IdleScreen() {
         <br />
         the rig
       </h1>
+
+      {/* Delulu Greeter */}
+      <div className="mt-8 mb-4">
+        <DeluluCharacter 
+          tier="validated" 
+          speaking={true} 
+          waving={true} 
+          smiling={true} 
+          size={180} 
+        />
+      </div>
 
       <div
         className="anim-fade-in mt-8 flex items-center gap-3 font-game text-lg uppercase tracking-[0.3em] text-ink-dim"
