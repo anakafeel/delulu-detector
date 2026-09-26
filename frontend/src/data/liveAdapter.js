@@ -5,7 +5,7 @@
 import { roundById, roundByNumber } from './roundDefs'
 
 // Fallback display units for the Pi's raw unit codes, if a round isn't in roundDefs.
-const UNIT_SUFFIX = { ms: 'ms', mg_rms: ' mg RMS', smile_pct: '% smiling' }
+const UNIT_SUFFIX = { ms: 'ms', mg_rms: ' mg RMS', smile_pct: '% smiling', s: ' s held' }
 
 function defFor(key, number) {
   return roundById(key) ?? roundByNumber(number) ?? null
@@ -14,7 +14,14 @@ function defFor(key, number) {
 function toActiveRound(active) {
   if (!active) return null
   const def = defFor(active.round_id, active.round_type_id)
-  return def ? { ...def, round_type_id: active.round_type_id } : { prompt: '', ...active }
+  if (!def) return { prompt: '', ...active }
+  // The Pi's own label and seconds scale win (config.ROUND_LABELS / STRAIGHT_MAX_S).
+  return {
+    ...def,
+    round_type_id: active.round_type_id,
+    label: active.round_label ?? def.label,
+    claim_max_s: active.claim_max_s ?? def.claim_max_s,
+  }
 }
 
 function failedLabel(r) {

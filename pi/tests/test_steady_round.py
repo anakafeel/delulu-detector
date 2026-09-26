@@ -183,7 +183,7 @@ def test_round_1_still_uses_round_1_templates():
     r = score_reflex_round(100, 600)                             # delulu_over
     assert ec.templates_for(r.round_id) is ec.TEMPLATES
     text = ec.build_verdict_text(r, "Saim", rng=_PickEach(0))
-    assert text == ec.TEMPLATES["delulu_over"][0].format(claim=100, ms=600, gap=100)
+    assert text == ec.TEMPLATES["delulu_over"][0].format(player="Saim", claim=100, ms=600, gap=100, perf=0)
 
 
 def test_round_specific_fallback_audio_wins(monkeypatch, tmp_path):

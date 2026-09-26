@@ -4,7 +4,9 @@
 // Live (default): the Pi game loop (python pi/main.py --ui) serves its state.
 //   1. EventSource on /api/events (Server-Sent Events): the full state on every
 //      real change, plus small `dial` events ({"liveClaim": N}) while the knob
-//      turns, which are merged in without touching history/leaderboard
+//      turns, and small `live` events ({"camera": {mode, face, smiling, ...}}, the
+//      face rounds' live OpenCV numbers, up to 4/s), both merged in without
+//      touching history/leaderboard
 //   2. while that is down, polling /api/state every second (EventSource keeps
 //      reconnecting in the background; polling stops once it is back)
 // Mock: open the app with ?mock=1, or build/run with VITE_USE_MOCK=1.
@@ -19,7 +21,7 @@ export const USE_MOCK = params.has('mock')
   ? params.get('mock') !== '0'
   : import.meta.env.VITE_USE_MOCK === '1'
 
-const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
+export const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 const POLL_MS = 1000
 const OFFLINE_STATE = toUiState({ screen: 'idle', history: [] })
 
@@ -49,6 +51,15 @@ function sharedPart() {
   }
 }
 
+// A full snapshot only has the camera's slow part ({available, mode}); keep the
+// last `live` numbers while the mode is the same, so the readout doesn't blink.
+function keepLiveCamera(prev, next) {
+  if (!next || !prev || prev.mode !== next.mode || prev.available !== next.available || prev.kind !== next.kind) {
+    return next
+  }
+  return { ...prev, ...next }
+}
+
 function subscribeLive(callback) {
   let closed = false
   let last = null
@@ -66,6 +77,7 @@ function subscribeLive(callback) {
       history: history(raw.history, () => next.history),
       leaderboard: leaderboard(raw.leaderboard, () => next.leaderboard),
       latestResult: latestResult(raw.latestResult, () => next.latestResult),
+      camera: keepLiveCamera(last?.camera, next.camera),
     }
     callback({ ...last, connection: 'live' })
   }
@@ -75,6 +87,12 @@ function subscribeLive(callback) {
     const liveClaim = raw.liveClaim ?? null
     if (liveClaim === last.liveClaim) return
     last = { ...last, liveClaim }
+    callback({ ...last, connection: 'live' })
+  }
+  // `event: live`: the camera's fast numbers. Merged into state.camera; nothing else changes.
+  const deliverLive = (raw) => {
+    if (closed || !last || !raw?.camera) return
+    last = { ...last, camera: { ...last.camera, ...raw.camera } }
     callback({ ...last, connection: 'live' })
   }
   const markOffline = () => {
@@ -109,6 +127,13 @@ function subscribeLive(callback) {
         // ignore a garbled event; the next one replaces it
       }
     }
+    source.addEventListener('live', (event) => {
+      try {
+        deliverLive(JSON.parse(event.data))
+      } catch {
+        // ignore a garbled event; the next one replaces it
+      }
+    })
     source.addEventListener('dial', (event) => {
       try {
         deliverDial(JSON.parse(event.data))

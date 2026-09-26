@@ -1,16 +1,25 @@
 /*
- * Delulu Detector - Round 1 (Reflex) + Round 2 (Steady Hands)
+ * The Tell - Round 1 (Reflex) + Poker Face (id 5) + Straight Face Under Pressure (id 6)
+ * (+ the cut Steady Hands, id 2, still selectable with R2). The face rounds only lock the claim here.
  * Arduino UNO R4 WiFi (also builds for a classic Uno) sketch. Reads sensors and prints ONE JSON object per line over
  * serial. No scoring or game logic lives here; the Raspberry Pi does all of it.
  *
  * Round selection (Pi -> Arduino, one short line, newline-terminated, CR ignored):
  *   R1  -> Reflex Round (the default after boot, so an Arduino with no Pi command behaves as before)
  *   R2  -> Steady Hands Round
+ *   R5  -> Poker Face Round (the Pi's webcam measures; the sketch only locks the claim)
+ *   R6  -> Straight Face Under Pressure (same: the Pi's webcam measures)
  *   ?   -> just report the current mode
  * Every command is answered (between rounds) with
  *   {"type":"status","state":"mode","round_id":2,"accel":"LIS3DH@0x19"}
  * and anything else with {"type":"status","state":"error","error":"unknown_command"}.
- * Commands are only read between rounds; a round in progress finishes first.
+ *   W<ms> -> face-round cue length in ms (1000-30000, default 6000; the Pi sends it after
+ *            every R5 / R6 ack: 6000 for Poker Face, 20000 for Straight Face), answered with
+ *            {"type":"status","state":"window","window_ms":6000}, or
+ *            {"type":"status","state":"error","error":"bad_window"} if out of range.
+ *   S     -> only DURING a face-round cue: end it now (the Pi saw the face change in
+ *            Round 6). Ignored between rounds.
+ * Commands are only read between rounds (except S during the cue); a round in progress finishes first.
  *
  * Round 1 flow (Reflex):
  *   1. IDLE: player turns the rotary dial to set a claim (0-100).
@@ -37,6 +46,17 @@
  *   raw Wire register access, no extra libraries. If none is found, Round 2 reports
  *   an error result right after the lock press; Round 1 is unaffected.
  *
+ * Round 5 flow (Poker Face): the webcam is on the Pi, not here.
+ *   1-2. Same claim lock as Round 1 (claim = claimed poker-face confidence).
+ *   3. After the button is released: print the claim line (the Pi starts its camera
+ *      window and the interview question when it reads it), then show the cue for pokerWindowMs:
+ *      a smiley on the R4 WiFi matrix + L LED. Button presses are ignored meanwhile.
+ *   4. Cue off (plus a short beep if a buzzer is connected), then "ready".
+ *
+ * Round 6 flow (Straight Face Under Pressure): exactly like Round 5, with a
+ *   straight-mouthed face on the matrix, a claim line with "round_id":6, and a cue
+ *   that ends early when the Pi sends S (it saw the expression change).
+ *
  * Serial: 115200 baud, 8N1, newline-terminated JSON.
  *
  * Result lines (the only lines the Pi scores):
@@ -45,11 +65,13 @@
  *     timeout:     "actual":null,"timeout":true
  *   {"type":"result","round_id":2,"seq":4,"claim":72,"actual":14.3,"unit":"mg_rms","peak":61.2,"samples":500,"false_start":false,"timeout":false}
  *     sensor problem: "actual":null,"peak":null,...,"error":"no_accel" (or "accel_read")
+ * Face-round claim line (the Pi measures and scores; there is no result line from here):
+ *   {"type":"claim","round_id":5,"seq":6,"claim":72}     (or "round_id":6)
  * Informational lines (Pi ignores them, handy in the Serial Monitor):
  *   boot: {"type":"status","state":"ready","accel":"LIS3DH@0x19"}   ("accel":"none" if not found)
  *   {"type":"status","state":"ready"} / "locked" / "cue" / "countdown" / "hold"
  *   "locked" also carries the claim just read: {"type":"status","state":"locked","claim":72}
- * Live dial, only while waiting for the lock press (the browser UI shows it as the claim is set):
+ * Live dial, only while waiting for the lock press, in every round (the browser UI shows it as the claim is set):
  *   {"type":"dial","value":57}
  *   Smoothed, sent when the value changes by 1 or more (with a little hysteresis so it doesn't
  *   flicker between two values), at most every DIAL_REPORT_MS, and once after boot, after every
@@ -77,7 +99,9 @@
 #define SERIAL_BAUD           115200
 #define ROUND_REFLEX          1      // round TYPE ids, reported as "round_id"
 #define ROUND_STEADY          2
-#define DEFAULT_ROUND         ROUND_REFLEX   // mode after boot until the Pi sends R1 / R2
+#define ROUND_POKER           5
+#define ROUND_STRAIGHT        6
+#define DEFAULT_ROUND         ROUND_REFLEX   // mode after boot until the Pi sends R1 / R5 / R6
 #define RANDOM_DELAY_MIN_MS   1500
 #define RANDOM_DELAY_MAX_MS   4000
 #define REACTION_TIMEOUT_MS   3000   // no press this long after cue = timeout
@@ -100,6 +124,11 @@
 #define STEADY_PEAK_WARMUP    10     // samples before "peak" is tracked (running mean must settle)
 #define STEADY_MIN_SAMPLE_PCT 80     // fewer good samples than this % of expected = "accel_read" error
 #define I2C_TIMEOUT_US        25000  // a stuck I2C bus can't hang the sketch
+
+// Round 5 (Poker Face): the Pi's webcam measures; the sketch locks the claim and shows a cue
+#define POKER_WINDOW_MS       6000   // face-round cue length after the claim; the Pi sets it with "W<ms>"
+#define POKER_WINDOW_MIN_MS   1000
+#define POKER_WINDOW_MAX_MS   30000
 // ---------------------------------------------------------------------------
 
 #if defined(ARDUINO_UNOR4_WIFI)
@@ -113,10 +142,15 @@ const uint32_t MATRIX_COUNTDOWN[3][3] = {
   {0x0F010800, 0x80100600, 0x801F8000},   // 2
   {0x0600A002, 0x00200200, 0x200F8000},   // 1
 };
+// Round 5 cue: a smiley ("look at the camera, don't smile back").
+const uint32_t MATRIX_SMILEY[3] = {0x00019819, 0x80002041, 0x080F0000};
+// Round 6 cue: a straight face ("keep yours like this").
+const uint32_t MATRIX_NEUTRAL[3] = {0x00019819, 0x80000001, 0xF8000000};
 #endif
 
 unsigned long seq = 0;
 uint8_t roundMode = DEFAULT_ROUND;
+uint16_t pokerWindowMs = POKER_WINDOW_MS;
 
 bool buttonPressed() {
 #if BUTTON_ACTIVE_LOW
@@ -524,6 +558,26 @@ void printModeStatus() {
   Serial.println(F("\"}"));
 }
 
+// "W<ms>": Round 5 cue length. Digits only; out of range = bad_window (nothing changes).
+void handleWindowCommand(const char *digits) {
+  unsigned long ms = 0;
+  for (const char *c = digits; *c != '\0'; c++) {
+    if (*c < '0' || *c > '9') {
+      Serial.println(F("{\"type\":\"status\",\"state\":\"error\",\"error\":\"unknown_command\"}"));
+      return;
+    }
+    ms = ms * 10UL + (unsigned long)(*c - '0');
+  }
+  if (ms < POKER_WINDOW_MIN_MS || ms > POKER_WINDOW_MAX_MS) {
+    Serial.println(F("{\"type\":\"status\",\"state\":\"error\",\"error\":\"bad_window\"}"));
+    return;
+  }
+  pokerWindowMs = (uint16_t)ms;
+  Serial.print(F("{\"type\":\"status\",\"state\":\"window\",\"window_ms\":"));
+  Serial.print(pokerWindowMs);
+  Serial.println(F("}"));
+}
+
 void handleCommand(char *cmd, bool overflow) {
   // trim spaces / tabs
   while (*cmd == ' ' || *cmd == '\t') cmd++;
@@ -532,14 +586,21 @@ void handleCommand(char *cmd, bool overflow) {
   if (len == 0 && !overflow) {
     return;                          // blank line: ignore
   }
-  if (!overflow && len == 2 && (cmd[0] == 'R' || cmd[0] == 'r') && (cmd[1] == '1' || cmd[1] == '2')) {
-    roundMode = (cmd[1] == '1') ? ROUND_REFLEX : ROUND_STEADY;
+  if (!overflow && len == 1 && (cmd[0] == 'S' || cmd[0] == 's')) {
+    return;                          // a late "end the cue": the cue already ended, nothing to do
+  }
+  if (!overflow && len == 2 && (cmd[0] == 'R' || cmd[0] == 'r') &&
+      (cmd[1] == '1' || cmd[1] == '2' || cmd[1] == '5' || cmd[1] == '6')) {
+    roundMode = (cmd[1] == '1') ? ROUND_REFLEX : (cmd[1] == '2') ? ROUND_STEADY
+              : (cmd[1] == '5') ? ROUND_POKER : ROUND_STRAIGHT;
     if (roundMode == ROUND_STEADY && accelKind == ACCEL_NONE) {
       detectAccel();                 // sensor may have been plugged in after boot
     }
     printModeStatus();
   } else if (!overflow && len == 1 && cmd[0] == '?') {
     printModeStatus();
+  } else if (!overflow && len >= 2 && (cmd[0] == 'W' || cmd[0] == 'w')) {
+    handleWindowCommand(cmd + 1);
   } else {
     Serial.println(F("{\"type\":\"status\",\"state\":\"error\",\"error\":\"unknown_command\"}"));
   }
@@ -712,6 +773,53 @@ void playSteadyRound(int claim) {
   printStatus("ready");
 }
 
+// Round 5: the claim is all the Arduino reports. The Pi starts its camera window
+// (and the joke) when it reads this line.
+void printFaceClaim(uint8_t roundId, int claim) {
+  Serial.print(F("{\"type\":\"claim\",\"round_id\":"));
+  Serial.print(roundId);
+  Serial.print(F(",\"seq\":"));
+  Serial.print(seq);
+  Serial.print(F(",\"claim\":"));
+  Serial.print(claim);
+  Serial.println(F("}"));
+}
+
+void faceCueOn(uint8_t roundId) {
+  digitalWrite(CUE_LED_PIN, HIGH);
+#if defined(ARDUINO_UNOR4_WIFI)
+  matrix.loadFrame(roundId == ROUND_STRAIGHT ? MATRIX_NEUTRAL : MATRIX_SMILEY);
+#else
+  (void)roundId;
+#endif
+}
+
+// "S" from the Pi during the cue = the face changed, end it now. Anything else that
+// arrives mid-cue is dropped (the Pi only sends commands between rounds).
+bool stopCueRequested() {
+  bool stop = false;
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+    if (c == 'S' || c == 's') stop = true;
+  }
+  return stop;
+}
+
+void playFaceRound(uint8_t roundId, int claim) {
+  printFaceClaim(roundId, claim);
+  faceCueOn(roundId);
+  const unsigned long start = millis();
+  while (millis() - start < pokerWindowMs) {    // button ignored during the window
+    if (stopCueRequested()) break;
+  }
+  cueOff();
+#if USE_BUZZER
+  tone(BUZZER_PIN, BUZZER_FREQ_HZ, BUZZER_MS);    // "done" beep
+#endif
+  waitForRelease();
+  printStatus("ready");
+}
+
 void setup() {
   Serial.begin(SERIAL_BAUD);
 #if BUTTON_ACTIVE_LOW
@@ -747,7 +855,7 @@ void printLocked(int claim) {
 }
 
 void loop() {
-  pollSerialCommands();              // R1 / R2 / ? from the Pi, only between rounds
+  pollSerialCommands();              // R1 / R2 / R5 / W<ms> / ? from the Pi, only between rounds
   updateLiveDial();                  // {"type":"dial"} while the claim is being set
 
   // 1-2. Wait for the lock press; the dial value at that moment is the claim.
@@ -762,6 +870,8 @@ void loop() {
 
   if (roundMode == ROUND_STEADY) {
     playSteadyRound(claim);
+  } else if (roundMode == ROUND_POKER || roundMode == ROUND_STRAIGHT) {
+    playFaceRound(roundMode, claim);
   } else {
     playReflexRound(claim);
   }

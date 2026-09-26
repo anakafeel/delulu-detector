@@ -10,14 +10,17 @@ import requests
 
 import config
 import elevenlabs_client as ec
-from scoring import score_reflex_round, score_steady_round
+from scoring import score_poker_round, score_reflex_round, score_steady_round
 
 LONG_NAME = "Maximilian"            # 10 characters
 assert len(LONG_NAME) == 10
 # Longest realistic values: claim/perf/gap top out at 100, readings as 3 digits.
-LONGEST_VALUES = dict(player=LONG_NAME, claim=100, perf=100, gap=100, ms=999, mg=999, peak=999)
-PLACEHOLDERS = {"player", "claim", "perf", "gap", "ms", "mg", "peak"}
-TEMPLATE_SETS = {1: ec.TEMPLATES, 2: ec.STEADY_TEMPLATES}
+LONGEST_VALUES = dict(player=LONG_NAME, claim=100, perf=100, gap=100, ms=999, mg=999, peak=999,
+                      smile=100, secs=999, held=999, claimsecs=999)
+PLACEHOLDERS = {"player", "claim", "perf", "gap", "ms", "mg", "peak", "smile", "secs", "held", "claimsecs"}
+# Raw-reading placeholders each round may use (the shared ones are always allowed).
+ROUND_PLACEHOLDERS = {1: {"ms"}, 2: {"mg", "peak"}, 5: {"smile", "secs"}, 6: {"held", "claimsecs"}}
+TEMPLATE_SETS = {1: ec.TEMPLATES, 2: ec.STEADY_TEMPLATES, 5: ec.POKER_TEMPLATES, 6: ec.STRAIGHT_TEMPLATES}
 ALL_LINES = [(rid, key, line) for rid, t in TEMPLATE_SETS.items()
              for key, lines in t.items() for line in lines]
 SCORED_KEYS = ["validated"] + [f"{t}_{d}" for t in ("mild", "spicy", "delulu") for d in ("over", "under")]
@@ -44,15 +47,13 @@ def test_word_limit_is_18():
 def test_every_line_uses_only_known_placeholders(round_id, key, line):
     names = {f for _, f, _, _ in string.Formatter().parse(line) if f is not None}
     assert names <= PLACEHOLDERS, line
-    if round_id == 2:
-        assert "ms" not in names, line
-    else:
-        assert not names & {"mg", "peak"}, line
+    raw = PLACEHOLDERS - {"player", "claim", "perf", "gap"}
+    assert not names & (raw - ROUND_PLACEHOLDERS[round_id]), line     # only this round's readings
     if key in ("false_start", "timeout", "void"):
-        assert not names & {"ms", "mg", "peak", "perf", "gap"}, line   # nothing was measured
+        assert not names & (raw | {"perf", "gap"}), line                 # nothing was measured
 
 
-@pytest.mark.parametrize("round_id", [1, 2])
+@pytest.mark.parametrize("round_id", [1, 2, 5, 6])
 def test_every_key_has_at_least_4_distinct_lines(round_id):
     templates = TEMPLATE_SETS[round_id]
     expected = SCORED_KEYS + ["void"] + (["false_start", "timeout"] if round_id == 1 else [])
@@ -62,9 +63,12 @@ def test_every_key_has_at_least_4_distinct_lines(round_id):
         assert len(set(lines)) == len(lines), key
 
 
-def test_no_round_3_content():
-    assert set(ec.ROUND_TEMPLATES) == {1, 2}
-    assert all(rid in (None, 1, 2) for rid, _ in ec.FALLBACK_LINES)
+def test_no_round_id_3_content():
+    # Internal round id 3 (the parked Retreat idea) has no templates, fallbacks or name.
+    # The Tell's "Round 3" is Straight Face, internal id 6.
+    assert set(ec.ROUND_TEMPLATES) == {1, 2, 5, 6}
+    assert all(rid in (None, 1, 2, 5, 6) for rid, _ in ec.FALLBACK_LINES)
+    assert 3 not in config.ROUND_NAMES
 
 
 def test_first_void_line_is_the_safe_last_resort():
@@ -126,6 +130,10 @@ EXPECTED_FALLBACK_FILES = {
     "fallback_false_start.mp3", "fallback_timeout.mp3",
     "fallback_round2_validated.mp3", "fallback_round2_mild.mp3",
     "fallback_round2_spicy.mp3", "fallback_round2_delulu.mp3",
+    "fallback_round5_validated.mp3", "fallback_round5_mild.mp3",
+    "fallback_round5_spicy.mp3", "fallback_round5_delulu.mp3",
+    "fallback_round6_validated.mp3", "fallback_round6_mild.mp3",
+    "fallback_round6_spicy.mp3", "fallback_round6_delulu.mp3",
 }
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
                 "ten", "hundred", "percent", "millisecond", "milli-g")
@@ -136,7 +144,7 @@ def test_fallback_files_match_what_the_app_looks_for():
     assert names == EXPECTED_FALLBACK_FILES
     assert config.FALLBACK_AUDIO.name in names
     # every tier a round can produce has a file of its own in the chain before the generic one
-    for rid in (1, 2):
+    for rid in (1, 2, 5, 6):
         for tier in ec.round_tiers(rid):
             chain = [p.name for p in ec.fallback_candidates(tier, rid)[:-1]]
             assert set(chain) & names, (rid, tier)
@@ -149,7 +157,7 @@ def test_fallback_lines_are_name_and_number_free_and_short(key, text):
     words = set(re.findall(r"[a-z-]+", text.lower()))
     assert not words & set(NUMBER_WORDS), text
     assert ec.word_count(text) <= ec.MAX_VERDICT_WORDS, text
-    if key[0] == 2 or key[1] in ("validated", "mild", "spicy", "delulu", None):
+    if key[0] in (2, 5, 6) or key[1] in ("validated", "mild", "spicy", "delulu", None):
         # tier files are picked by tier only, so they must not assume a direction
         assert not re.search(r"\b(over|under)\s?confident|sandbag", text.lower()), text
 
@@ -160,6 +168,11 @@ def test_fallback_plan_per_round():
     assert "fallback_false_start.mp3" in r1 and "fallback_round2_delulu.mp3" not in r1
     assert "fallback_false_start.mp3" not in r2 and "fallback_round2_delulu.mp3" in r2
     assert "fallback_verdict.mp3" in r1 & r2
+    r5 = {p.name for p, _ in ec.fallback_plan(5)}
+    assert {f"fallback_round5_{t}.mp3" for t in ("validated", "mild", "spicy", "delulu")} <= r5
+    assert "fallback_false_start.mp3" not in r5 and "fallback_round2_delulu.mp3" not in r5
+    assert "fallback_verdict.mp3" in r5 and "fallback_delulu.mp3" in r5
+    assert not any("round5" in n for n in r1 | r2)
 
 
 # ------------------------------------------------------------------ delivery when TTS fails
@@ -248,6 +261,8 @@ def test_http_error_in_round_1_uses_round_neutral_tier_file(live, monkeypatch, c
     (lambda: score_reflex_round(52, 375), "fallback_validated.mp3"),             # perf 50
     (lambda: score_reflex_round(35, 375), "fallback_mild.mp3"),                  # gap 15, under
     (lambda: score_steady_round(15, 44.0), "fallback_round2_spicy.mp3"),         # spicy, under
+    (lambda: score_poker_round(100, 0.40), "fallback_round5_delulu.mp3"),        # perf 12.5, over
+    (lambda: score_poker_round(45, 0.25), "fallback_round5_validated.mp3"),      # perf 50
 ])
 def test_network_failure_picks_the_right_file_for_every_generated_name(live, monkeypatch,
                                                                         make_result, expected):

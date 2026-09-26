@@ -19,6 +19,7 @@ function Stage({ state }) {
           activeRound={state.activeRound}
           player={state.player}
           liveClaim={state.liveClaim}
+          camera={state.camera}
         />
       )
     case 'reveal':
@@ -39,7 +40,7 @@ export default function App() {
 
       <header className="relative z-10 mb-5 flex items-center justify-between px-1">
         <span className="font-display text-lg tracking-widest text-ink">
-          DELULU<span className="text-claim">.</span>DETECTOR
+          THE<span className="text-claim">.</span>TELL
         </span>
         <span className="flex items-center gap-2 font-game text-xs uppercase tracking-[0.3em] text-ink-dim">
           <motion.span

@@ -40,6 +40,8 @@ def env(monkeypatch, tmp_path):
     assets.mkdir()
     monkeypatch.setattr(config, "ASSETS_DIR", assets)
     monkeypatch.setattr(config, "FALLBACK_AUDIO", assets / "fallback_verdict.mp3")
+    monkeypatch.setattr(config, "JOKES_DIR", assets / "jokes")
+    monkeypatch.setattr(config, "QUESTIONS_DIR", assets / "questions")
     monkeypatch.setattr(config, "ELEVENLABS_API_KEY", KEY)
     monkeypatch.setattr(config, "ELEVENLABS_VOICE_ID", VOICE)
     monkeypatch.setattr(config, "ELEVENLABS_MODEL_ID", MODEL)
@@ -192,3 +194,76 @@ def test_cli_dry_run_runs_from_the_repo_root():
                           env=env, capture_output=True, text=True, timeout=30)
     assert proc.returncode == 0, proc.stderr
     assert "fallback_verdict.mp3" in proc.stdout and "Nothing was written" in proc.stdout
+
+
+# --------------------------------------------------------------- Round 5
+def test_round_5_filter(env, capsys):
+    _, out, _ = _run(capsys, "--dry-run", "--round", "5")
+    assert out.count("fallback_round5_") == 4 and "fallback_delulu.mp3" in out
+    assert "fallback_round2_" not in out and "fallback_false_start.mp3" not in out
+    assert "poker_" not in out and "pressure_" not in out           # questions only with --questions
+
+
+def test_round_6_filter(env, capsys):
+    _, out, _ = _run(capsys, "--dry-run", "--round", "6")
+    assert out.count("fallback_round6_") == 4 and "fallback_delulu.mp3" in out
+    assert "fallback_round5_" not in out and "fallback_false_start.mp3" not in out
+
+
+ALL_QUESTIONS = ([f"poker_{i:02d}.mp3" for i in range(1, len(ec.POKER_QUESTION_LINES) + 1)]
+                 + [f"pressure_{i:02d}.mp3" for i in range(1, len(ec.PRESSURE_QUESTION_LINES) + 1)])
+ALL_QUESTION_TEXT = ec.POKER_QUESTION_LINES + ec.PRESSURE_QUESTION_LINES
+
+
+def test_questions_dry_run_lists_every_clip(env, capsys, monkeypatch):
+    assets, calls = env
+    monkeypatch.setattr(config, "ELEVENLABS_API_KEY", "")
+    code, out, _ = _run(capsys, "--questions", "--dry-run")
+    assert code == 0 and calls == [] and list(assets.iterdir()) == []
+    assert "Question clips -> " in out
+    for name, text in zip(ALL_QUESTIONS, ALL_QUESTION_TEXT):
+        assert f'would generate {name}: "{text}"' in out
+    assert "fallback_" not in out.replace("make_fallbacks", "")
+    assert f"Dry run: {len(ALL_QUESTIONS)} to generate" in out
+
+
+def test_questions_generate_into_assets_questions_with_same_voice_and_model(env, capsys):
+    assets, calls = env
+    code, out, _ = _run(capsys, "--questions")
+    assert code == 0 and len(calls) == len(ALL_QUESTIONS)
+    for call, text in zip(calls, ALL_QUESTION_TEXT):
+        assert call["url"] == f"{config.ELEVENLABS_BASE_URL}/v1/text-to-speech/{VOICE}"
+        assert call["json"] == {"text": text, "model_id": MODEL}
+        assert call["params"] == {"output_format": config.ELEVENLABS_OUTPUT_FORMAT}
+    folder = assets / "questions"
+    assert sorted(p.name for p in folder.iterdir()) == sorted(ALL_QUESTIONS)      # no .part left
+    assert (folder / "poker_01.mp3").read_bytes() == b"ID3" + ec.POKER_QUESTION_LINES[0].encode()
+    assert sorted(p.name for p in assets.iterdir()) == ["questions"]              # no fallbacks
+    calls.clear()
+    code, out, _ = _run(capsys, "--questions")                                    # skip existing
+    assert code == 0 and calls == [] and "Nothing to do" in out
+    code, _, _ = _run(capsys, "--questions", "--only", "pressure_03.mp3", "--force")
+    assert code == 0 and [c["json"]["text"] for c in calls] == [ec.PRESSURE_QUESTION_LINES[2]]
+
+
+def test_questions_round_filter_and_the_old_jokes_flag(env, capsys, monkeypatch):
+    monkeypatch.setattr(config, "ELEVENLABS_API_KEY", "")
+    _, out, _ = _run(capsys, "--questions", "--round", "6", "--dry-run")
+    assert out.count("would generate pressure_") == len(ec.PRESSURE_QUESTION_LINES) and "poker_" not in out
+    _, out, _ = _run(capsys, "--jokes", "--round", "5", "--dry-run")              # old name still works
+    assert out.count("would generate poker_") == len(ec.POKER_QUESTION_LINES) and "pressure_" not in out
+
+
+def test_questions_only_matching_nothing_and_bad_round_are_errors(env, capsys):
+    code, _, err = _run(capsys, "--questions", "--only", "nope*")
+    assert code == 1 and "no question file matches" in err and "poker_01.mp3" in err
+    with pytest.raises(SystemExit):
+        mf.main(["--questions", "--round", "1"])
+
+
+def test_questions_need_a_key(env, capsys, monkeypatch):
+    assets, calls = env
+    monkeypatch.setattr(config, "ELEVENLABS_API_KEY", "")
+    code, _, err = _run(capsys, "--questions")
+    assert code == 2 and calls == [] and "ELEVENLABS_API_KEY is not set" in err
+    assert not (assets / "questions").exists()
