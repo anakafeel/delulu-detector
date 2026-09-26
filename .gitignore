@@ -22,3 +22,6 @@ arduino/**/build/
 .DS_Store
 .vscode/
 .idea/
+
+# Half-written fallback mp3 from an interrupted pi/make_fallbacks.py run
+assets/*.part

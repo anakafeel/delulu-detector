@@ -47,16 +47,30 @@ This is the PRD's `{claim, actual, round_id}` plus a few extra fields. `round_id
 - Calibration curve (stretch): `SessionLog.calibration_series(player, session_id=None)` returns `[(round_number, gap), ...]`, ready to plot. False starts and timeouts are skipped.
 
 ### Voice and fallback
-`pi/elevenlabs_client.py` fills in a verdict line (picked by tier) with the numbers and sends it to `POST /v1/text-to-speech/{voice_id}` using `requests`. The whole call, including connecting, waiting for the first byte and downloading the audio, has a **3 s total budget** (`ELEVENLABS_TIMEOUT_S`). If there's no key, the call runs out of time, returns an HTTP error or empty audio, or the mp3 can't be saved, it plays a pre-recorded fallback instead: `assets/fallback_<tier>.mp3` if it exists, otherwise `assets/fallback_verdict.mp3`. If neither file exists, the verdict is text only. The verdict text is printed to the console every time.
+`pi/elevenlabs_client.py` fills in a verdict line (picked by round and tier) with the numbers and sends it to `POST /v1/text-to-speech/{voice_id}` using `requests`. The whole call, including connecting, waiting for the first byte and downloading the audio, has a **3 s total budget** (`ELEVENLABS_TIMEOUT_S`). If there's no key, the call runs out of time, returns an HTTP error or empty audio, or the mp3 can't be saved, it plays a pre-recorded fallback instead: `assets/fallback_round2_<tier>.mp3` (Round 2 only), otherwise `assets/fallback_<tier>.mp3`, otherwise `assets/fallback_verdict.mp3`. If none of them exists, the verdict is text only. The verdict text is printed to the console every time, before the TTS call starts.
 
-**The fallback mp3s are not recorded yet.** `assets/` only holds a `.gitkeep`, so right now the fallback is text only. Record the lines ahead of time (for example, generate them once with ElevenLabs while you have a network connection) and add them to `assets/` with these names:
+**The fallback mp3s are not in the repo.** `assets/` only holds a `.gitkeep`, so until you generate them the fallback is text only. `pi/make_fallbacks.py` generates them with ElevenLabs (see [Narrator](#narrator)):
 
 - `fallback_verdict.mp3` (generic, used when there is no file for the tier)
 - `fallback_validated.mp3`, `fallback_mild.mp3`, `fallback_spicy.mp3`, `fallback_delulu.mp3`
 - `fallback_false_start.mp3`, `fallback_timeout.mp3`
-- Round-specific versions win when present: `fallback_round2_<tier>.mp3` (for example `fallback_round2_delulu.mp3`). Keep the plain `fallback_<tier>.mp3` lines round-neutral, since Round 2 uses them when it has no file of its own.
+- Round-specific versions win when present: `fallback_round2_<tier>.mp3` (for example `fallback_round2_delulu.mp3`). The plain `fallback_<tier>.mp3` lines are round-neutral, since Round 2 uses them when it has no file of its own.
 
 Each file is optional. A tier without its own file uses `fallback_verdict.mp3`; if that is missing too, the verdict for that tier is text only.
+
+### Narrator
+The verdict lines are in `pi/elevenlabs_client.py`: `TEMPLATES` (Round 1) and `STEADY_TEMPLATES` (Round 2), one list per key (`validated`, `mild_over`, `mild_under`, `spicy_over`, ..., plus `false_start` and `timeout` for Round 1). "over" means the player claimed more than they delivered (roast them), "under" means they sandbagged (tease them gently). To add a line, append a string to the right list. It can use `{player}`, `{claim}`, `{perf}` and `{gap}`, plus `{ms}` in Round 1 or `{mg}` / `{peak}` (milli-g) in Round 2. A line that needs a reading the round doesn't have is skipped. Keep it party-friendly (PG-13 at most, nothing about appearance or identity) and keep at least 4 lines per key. The narrator never picks the same line twice in a row for one player in a session.
+
+**Word limit: 18 words** (`MAX_VERDICT_WORDS`), counted as whitespace-separated words after filling in a 10-character name and 3-digit numbers. Short lines are quick to synthesize inside the 3 s budget and quick to say. `pi/tests/test_narrator.py` checks every line against the limit, so a line that is too long fails the tests.
+
+The fallback lines are in `FALLBACK_LINES` in the same file. They play when the API is down, so they must not contain names or numbers, and each tier line has to work for both over- and underconfidence. Before a demo, with the real `ELEVENLABS_API_KEY` in `.env` (voice and model come from `ELEVENLABS_VOICE_ID` / `ELEVENLABS_MODEL_ID`, like the app):
+
+```bash
+python pi/make_fallbacks.py --dry-run     # prints each file and its text, needs no key, writes nothing
+python pi/make_fallbacks.py               # generates the missing files in assets/
+```
+
+Existing files are skipped; `--force` regenerates them, `--only 'fallback_round2_*'` limits it to matching file names, and `--round 1` or `--round 2` to the files that round can play. On an HTTP or network error it stops with a non-zero exit code and an error message (the key is never printed); re-running keeps the files that were already written. **Listen to every generated mp3 once** before the demo, since TTS sometimes mispronounces a word or reads a line oddly. If one sounds wrong, regenerate it with `--only <file> --force`.
 
 If one round fails on the Pi (for example the SQLite write fails, the mp3 can't be written or audio playback breaks), `main.py` prints an `[error]` line and keeps listening for the next round.
 
@@ -209,7 +223,7 @@ python pi/main.py --mock --player Tester --rounds 4 --seed 1
 source .venv/bin/activate
 python -m pytest pi/tests -q
 ```
-The tests cover the ms-to-performance and mg-to-performance mappings (bounds, linearity, clamping), gap, score, tiers, false start and timeout handling (including the claim-0 case), the SQLite log (fields, per-player round numbering, leaderboard and calibration series across rounds, the schema v2 migration of old `sessions.db` files), serial line parsing for both rounds, the round selection line and its ack/resend logic (with a fake serial port), `--mock` and `--calibrate` for Round 2, verdict text for every tier of both rounds, the TTS time budget (with a faked network) and the main loop surviving a failed round. They never call ElevenLabs.
+The tests cover the ms-to-performance and mg-to-performance mappings (bounds, linearity, clamping), gap, score, tiers, false start and timeout handling (including the claim-0 case), the SQLite log (fields, per-player round numbering, leaderboard and calibration series across rounds, the schema v2 migration of old `sessions.db` files), serial line parsing for both rounds, the round selection line and its ack/resend logic (with a fake serial port), `--mock` and `--calibrate` for Round 2, verdict text for every tier of both rounds (word limit, at least 4 lines per key, no back-to-back repeats), the TTS time budget and which fallback plays when TTS fails or is too slow (with a faked network), `make_fallbacks.py` (dry run, skip/force, the faked HTTP call, errors) and the main loop surviving a failed round. They never call ElevenLabs.
 
 CI (`.github/workflows/ci.yml`) runs these tests and compiles the sketch for both `arduino:avr:uno` and `arduino:renesas_uno:unor4wifi` on every push and pull request.
 
@@ -225,13 +239,14 @@ delulu-detector/
 │   ├── main.py                     # serial listener + main loop (--port, --player, --round, --calibrate, --mock)
 │   ├── config.py                   # every tunable number (ms / mg bounds, tiers, timeout, paths)
 │   ├── scoring.py
-│   ├── elevenlabs_client.py
+│   ├── elevenlabs_client.py        # verdict lines, fallback lines, TTS with a 3 s budget
+│   ├── make_fallbacks.py           # generates the fallback mp3s in assets/
 │   ├── session_log.py
 │   ├── requirements.txt
 │   └── tests/
 ├── data/                           # sessions.db is created here (gitignored)
 ├── docs/pitch_script.md
-└── assets/                         # fallback mp3s go here (none recorded yet, see "Voice and fallback")
+└── assets/                         # fallback mp3s go here (generate with pi/make_fallbacks.py, see "Narrator")
 ```
 
 ## License
