@@ -1,41 +1,49 @@
 #!/usr/bin/env python3
-"""Delulu Detector - Pi main loop (Round 1: Reflex Round).
+"""Delulu Detector - Pi main loop (Round 1: Reflex, Round 2: Steady Hands).
 
 Reads newline-delimited JSON from the Arduino, scores each result, logs it to
-SQLite, and has the narrator deliver a verdict.
+SQLite, and has the narrator deliver a verdict. The Pi picks the round type by
+writing "R1\\n" or "R2\\n" to the Arduino when the port opens.
 
 Examples:
-    python pi/main.py --port /dev/ttyACM0 --player Saim
-    python pi/main.py --mock --player Tester --rounds 3        # no hardware needed
+    python pi/main.py --port /dev/ttyACM0 --player Saim               # Round 1 (default)
+    python pi/main.py --port /dev/ttyACM0 --player Saim --round 2     # Steady Hands
+    python pi/main.py --port /dev/ttyACM0 --round 2 --calibrate       # raw mg only, no scoring/logging
+    python pi/main.py --mock --player Tester --rounds 3               # no hardware needed
+    python pi/main.py --mock --round 2 --player Tester --rounds 3
     python pi/main.py --leaderboard
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import sqlite3
+import statistics
 import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 import config
 from elevenlabs_client import deliver_verdict
-from scoring import RoundResult, score_reflex_round
+from scoring import (ROUND_REFLEX, ROUND_STEADY, RoundResult, score_reading,
+                     tremor_mg_to_performance)
 from session_log import SessionLog, new_session_id
+
+ROUND_INSTRUCTIONS = {
+    ROUND_REFLEX: "Set the dial, press the button to lock your claim, wait for the cue.",
+    ROUND_STEADY: ("Set the dial to how steady you are, press the button to lock it, "
+                   "then hold the sensor still for 5 s while the matrix is lit."),
+}
 
 
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
-def parse_line(line: str) -> Optional[dict]:
-    """Return a result dict for scoreable lines, None for anything else.
-
-    Accepts {"type":"result", "round_id", "claim", "actual", ...}. Status lines,
-    boot garbage and half-lines are ignored (returned as None).
-    """
+def _load_json_object(line: str) -> Optional[dict]:
     line = line.strip()
     if not line.startswith("{"):
         return None
@@ -43,7 +51,18 @@ def parse_line(line: str) -> Optional[dict]:
         msg = json.loads(line)
     except json.JSONDecodeError:
         return None
-    if not isinstance(msg, dict):
+    return msg if isinstance(msg, dict) else None
+
+
+def parse_line(line: str) -> Optional[dict]:
+    """Return a result dict for scoreable lines, None for anything else.
+
+    Accepts {"type":"result", "round_id", "claim", "actual", ...}. Round 2 lines
+    also carry "peak" (mg), "samples" and, on a sensor problem, "error". Status
+    lines, boot garbage and half-lines are ignored (returned as None).
+    """
+    msg = _load_json_object(line)
+    if msg is None:
         return None
     if msg.get("type", "result") != "result":
         return None
@@ -56,16 +75,147 @@ def parse_line(line: str) -> Optional[dict]:
             msg["actual"] = float(msg["actual"])
     except (TypeError, ValueError):
         return None
+    # NaN/inf would sail through clamp() and score 100: treat as a garbled line.
+    if not math.isfinite(msg["claim"]) or (
+            msg.get("actual") is not None and not math.isfinite(msg["actual"])):
+        return None
     msg["false_start"] = bool(msg.get("false_start", False))
     msg["timeout"] = bool(msg.get("timeout", False))
+    # Optional Round 2 extras: informational, so a bad value is dropped, not fatal.
+    for key, cast in (("peak", float), ("samples", int)):
+        if msg.get(key) is not None:
+            try:
+                msg[key] = cast(msg[key])
+            except (TypeError, ValueError):
+                msg[key] = None
+    if msg.get("error") is not None:
+        msg["error"] = str(msg["error"])
     return msg
+
+
+def parse_status(line: str) -> Optional[dict]:
+    """Return the dict for {"type":"status",...} lines, None for anything else."""
+    msg = _load_json_object(line)
+    if msg is None or msg.get("type") != "status":
+        return None
+    return msg
+
+
+def is_sensor_error(reading: dict) -> bool:
+    """A result where the Arduino couldn't measure anything (Round 2: no or failing accelerometer).
+
+    Not the player's fault, so it is neither scored nor logged.
+    """
+    if reading.get("error"):
+        return True
+    return reading["round_id"] == ROUND_STEADY and reading.get("actual") is None
+
+
+def is_resting(reading: dict) -> bool:
+    """A Round 2 hold so still the sensor must have been set down, not held.
+
+    Below config.STEADY_REST_MG no human hand is that steady (the table reads
+    about 21 mg, a still hand about 68). Rejected in play so "claim 100 and put
+    it on the table" can't take the best gap. --calibrate still shows these.
+    """
+    return (reading["round_id"] == ROUND_STEADY and reading.get("actual") is not None
+            and not reading.get("error") and reading["actual"] < config.STEADY_REST_MG)
+
+
+def report_resting(reading: dict) -> None:
+    print(f"   [rejected] Round 2 tremor {reading['actual']:.1f} mg RMS is below "
+          f"{config.STEADY_REST_MG:g} mg: the sensor was resting, not held. Pick it up and hold it "
+          "in your hand, then press the button again. Not scored or logged.", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Round selection (Pi -> Arduino)
+# ---------------------------------------------------------------------------
+def selection_line(round_id: int) -> bytes:
+    """The line that switches the sketch to a round type: b"R1\\n" or b"R2\\n"."""
+    if round_id not in config.ROUND_NAMES:
+        raise ValueError(f"unsupported round {round_id}")
+    return f"R{round_id}\n".encode("ascii")
+
+
+class RoundSelector:
+    """Decides when to (re)send the round selection line.
+
+    - start(): the line to send right after the port opens.
+    - on_line(line): feed every line from the Arduino. A matching
+      {"state":"mode","round_id":N} ack stops the resends. A boot banner
+      ({"state":"ready","accel":...}) means the board reset back to Round 1, so
+      the selection is sent again straight away. A mode ack for another round
+      is corrected.
+    - on_idle(): no ack after config.SERIAL_ACK_TIMEOUT_S -> send again, at most
+      config.SERIAL_SELECT_MAX_SENDS times per boot (the sketch only reads
+      commands between rounds, and an old sketch never answers).
+    Each method returns the bytes to write, or None.
+    """
+
+    def __init__(self, round_id: int, ack_timeout_s: Optional[float] = None,
+                 max_sends: Optional[int] = None, clock: Callable[[], float] = time.monotonic):
+        self.round_id = round_id
+        self.line = selection_line(round_id)
+        self.ack_timeout_s = config.SERIAL_ACK_TIMEOUT_S if ack_timeout_s is None else ack_timeout_s
+        self.max_sends = config.SERIAL_SELECT_MAX_SENDS if max_sends is None else max_sends
+        self.clock = clock
+        self.acked = False
+        self.sends = 0
+        self.last_sent = 0.0
+        self.gave_up = False
+
+    def start(self) -> bytes:
+        self.acked = False
+        self.sends = 0
+        self.gave_up = False
+        return self._send()
+
+    def _send(self) -> Optional[bytes]:
+        if self.sends >= self.max_sends:
+            if not self.gave_up:
+                self.gave_up = True
+                print(f"   [warn] the Arduino never acknowledged {self.line.decode().strip()!r} "
+                      f"after {self.sends} tries. Is the sketch up to date? (An older, "
+                      "Round-1-only sketch ignores the selection; Round 1 still works.)",
+                      file=sys.stderr)
+            return None
+        self.sends += 1
+        self.last_sent = self.clock()
+        return self.line
+
+    def on_line(self, line: str) -> Optional[bytes]:
+        status = parse_status(line)
+        if status is None:
+            return None
+        state = status.get("state")
+        if state == "mode":
+            if status.get("round_id") == self.round_id:
+                self.acked = True
+                return None
+            self.acked = False
+            return self._send()
+        if state == "ready" and "accel" in status:     # boot banner: the board just reset
+            self.acked = False
+            self.sends = 0
+            self.gave_up = False
+            return self._send()
+        return None
+
+    def on_idle(self) -> Optional[bytes]:
+        if self.acked or self.clock() - self.last_sent < self.ack_timeout_s:
+            return None
+        return self._send()
 
 
 # ---------------------------------------------------------------------------
 # Input sources
 # ---------------------------------------------------------------------------
-def serial_lines(port: str, baud: int) -> Iterator[str]:
-    import serial  # pyserial; imported lazily so --mock works without it
+def serial_lines(port: str, baud: int, round_id: int = ROUND_REFLEX,
+                 serial_module=None) -> Iterator[str]:
+    if serial_module is None:
+        import serial as serial_module  # pyserial; imported lazily so --mock works without it
+    serial = serial_module
 
     while True:
         try:
@@ -73,19 +223,36 @@ def serial_lines(port: str, baud: int) -> Iterator[str]:
                 print(f"Opened {port} @ {baud} baud; waiting {config.SERIAL_OPEN_SETTLE_S}s for the Uno to reset...")
                 time.sleep(config.SERIAL_OPEN_SETTLE_S)
                 ser.reset_input_buffer()
-                print("Ready. Set the dial, press the button to lock your claim, wait for the cue.")
+                selector = RoundSelector(round_id)
+                ser.write(selector.start())
+                print(f"Selected Round {round_id} ({config.ROUND_NAMES[round_id]}). "
+                      f"Ready. {ROUND_INSTRUCTIONS[round_id]}")
                 while True:
                     raw = ser.readline()
                     if raw:
-                        yield raw.decode("utf-8", errors="replace")
+                        line = raw.decode("utf-8", errors="replace")
+                        out = selector.on_line(line)
+                        if out:
+                            ser.write(out)
+                        yield line
+                    out = selector.on_idle()
+                    if out:
+                        ser.write(out)
         except serial.SerialException as exc:
             print(f"Serial error on {port}: {exc}. Retrying in 2s (Ctrl+C to quit)...")
             time.sleep(2)
 
 
-def mock_lines(rounds: int, seed: Optional[int], delay_s: float) -> Iterator[str]:
+def mock_lines(rounds: int, seed: Optional[int], delay_s: float,
+               round_id: int = ROUND_REFLEX) -> Iterator[str]:
     """Emit Arduino-identical JSON lines. Simulates a player whose
-    overconfidence shrinks round over round, with the odd false start."""
+    overconfidence shrinks round over round, with the odd false start
+    (Round 1) or accelerometer hiccup (Round 2)."""
+    accel = "LIS3DH@0x19" if round_id == ROUND_STEADY else "none"
+    yield json.dumps({"type": "status", "state": "mode", "round_id": round_id, "accel": accel})
+    if round_id == ROUND_STEADY:
+        yield from _mock_steady_lines(rounds, seed, delay_s)
+        return
     rng = random.Random(seed)
     true_ms = rng.gauss(290, 30)                    # this player's "real" speed
     overconfidence = rng.uniform(35, 55)            # starts very delulu
@@ -105,28 +272,62 @@ def mock_lines(rounds: int, seed: Optional[int], delay_s: float) -> Iterator[str
         yield json.dumps({"type": "status", "state": "ready"})
 
 
+def _mock_steady_lines(rounds: int, seed: Optional[int], delay_s: float) -> Iterator[str]:
+    rng = random.Random(seed)
+    # A real hand measured about 68 mg RMS steady and far more when shaky (docs/calibration);
+    # stay above STEADY_REST_MG so mock holds aren't rejected as 'set down on the table'.
+    true_mg = rng.uniform(45, 250)                  # this player's real tremor, mg RMS
+    overconfidence = rng.uniform(35, 55)
+    full_window_samples = 500                       # 5 s at 100 Hz
+    for seq in range(1, rounds + 1):
+        for state in ("locked", "countdown", "hold"):
+            yield json.dumps({"type": "status", "state": state})
+        mg = round(max(40.0, rng.gauss(true_mg, true_mg * 0.25)), 1)
+        perf_guess = tremor_mg_to_performance(true_mg)
+        claim = int(max(0, min(100, perf_guess + overconfidence + rng.uniform(-5, 5))))
+        overconfidence *= 0.55
+        hiccup = rng.random() < 0.1                 # I2C trouble -> error result, not scored
+        msg = {"type": "result", "round_id": 2, "seq": seq, "claim": claim,
+               "actual": None if hiccup else mg, "unit": "mg_rms",
+               "peak": None if hiccup else round(mg * rng.uniform(2.5, 4.0), 1),
+               "samples": rng.randint(100, 350) if hiccup else full_window_samples,
+               "false_start": False, "timeout": False}
+        if hiccup:
+            msg["error"] = "accel_read"
+        time.sleep(delay_s)
+        yield json.dumps(msg)
+        yield json.dumps({"type": "status", "state": "ready"})
+
+
 # ---------------------------------------------------------------------------
 # Game logic glue
 # ---------------------------------------------------------------------------
+def describe_reality(result: RoundResult) -> str:
+    if result.false_start:
+        return "FALSE START (pressed before cue)"
+    if result.timeout:
+        return "TIMEOUT (no press)"
+    if result.round_id == ROUND_STEADY:
+        peak = result.extra.get("peak")
+        samples = result.extra.get("samples")
+        details = []
+        if peak is not None:
+            details.append(f"peak {peak:.0f} mg")
+        if samples is not None:
+            details.append(f"{samples} samples")
+        extra = f" ({', '.join(details)})" if details else ""
+        return f"{result.actual:.1f} mg RMS tremor{extra} -> performance {result.performance:.0f}"
+    return f"{result.actual:.0f} ms -> performance {result.performance:.0f}"
+
+
 def handle_reading(reading: dict, player: str, session_id: str, log: SessionLog,
                    play_audio: bool = True) -> tuple[RoundResult, int]:
-    result = score_reflex_round(
-        claim=reading["claim"],
-        actual_ms=reading.get("actual"),
-        false_start=reading["false_start"],
-        timeout=reading["timeout"],
-        round_id=reading["round_id"],
-    )
+    result = score_reading(reading)
     round_number = log.log_round(session_id, player, result)
 
-    if result.false_start:
-        reality = "FALSE START (pressed before cue)"
-    elif result.timeout:
-        reality = "TIMEOUT (no press)"
-    else:
-        reality = f"{result.actual_ms:.0f} ms -> performance {result.performance:.0f}"
-    print(f"\n== {player} | round {round_number} | Reflex ==")
-    print(f"   claim {result.claim} | reality {reality}")
+    name = config.ROUND_NAMES.get(result.round_id, f"Round {result.round_id}")
+    print(f"\n== {player} | round {round_number} | {name} ==")
+    print(f"   claim {result.claim} | reality {describe_reality(result)}")
     if result.scored:
         print(f"   gap {result.gap:.0f} | score {result.score} | tier {result.tier} ({result.direction})")
     else:
@@ -163,6 +364,65 @@ def _report_round_error(message: str, with_traceback: bool = False) -> None:
         traceback.print_exc(file=sys.stderr)
 
 
+_SENSOR_ERRORS = {
+    "no_accel": "no accelerometer found on I2C. Check the Grove cable is in an I2C port "
+                "(SDA/SCL), then press the button again",
+    "accel_read": "accelerometer reads kept failing during the hold. Check the Grove I2C cable",
+}
+
+
+def report_sensor_error(reading: dict) -> None:
+    code = reading.get("error") or "no_measurement"
+    detail = _SENSOR_ERRORS.get(code, "the Arduino reported no measurement")
+    samples = reading.get("samples")
+    got = f" ({samples} samples)" if samples is not None else ""
+    print(f"   [error] Round {reading['round_id']} sensor error '{code}'{got}: {detail}. "
+          "Not scored or logged. Still listening.", file=sys.stderr)
+
+
+def report_status(status: dict, selected_round: int) -> None:
+    """Print the interesting Arduino status lines (boot, mode ack, errors)."""
+    state = status.get("state")
+    accel = status.get("accel")
+    if state == "mode":
+        rid = status.get("round_id")
+        name = config.ROUND_NAMES.get(rid, f"Round {rid}")
+        print(f"   Arduino: Round {rid} ({name}) active, accelerometer {accel}")
+        if rid == ROUND_STEADY and accel == "none":
+            print("   [warn] no accelerometer detected: Round 2 will report sensor errors "
+                  "until one is plugged into a Grove I2C port.", file=sys.stderr)
+    elif state == "ready" and accel is not None:
+        print(f"   Arduino booted (accelerometer {accel}); re-sending the Round {selected_round} selection")
+    elif state == "error":
+        print(f"   [warn] Arduino reported an error: {status.get('error')}", file=sys.stderr)
+
+
+class Calibrator:
+    """--calibrate: collect raw Round 2 tremor values, no scoring, no logging."""
+
+    def __init__(self) -> None:
+        self.values: list[float] = []
+
+    def add(self, reading: dict) -> None:
+        mg = reading["actual"]
+        self.values.append(mg)
+        peak = reading.get("peak")
+        peak_s = "-" if peak is None else f"{peak:.1f}"
+        print(f"   calib #{len(self.values)}: tremor {mg:.1f} mg RMS | peak {peak_s} mg | "
+              f"samples {reading.get('samples', '-')} | (claim {reading['claim']:.0f} ignored)")
+        print(f"      so far: min {min(self.values):.1f} | median {statistics.median(self.values):.1f} | "
+              f"max {max(self.values):.1f} mg RMS over {len(self.values)} hold(s)")
+
+    def summary(self) -> str:
+        if not self.values:
+            return "No Round 2 holds recorded."
+        return (f"Calibration: {len(self.values)} hold(s), min {min(self.values):.1f}, "
+                f"median {statistics.median(self.values):.1f}, max {max(self.values):.1f} mg RMS. "
+                f"Current thresholds: STEADY_BEST_MG={config.STEADY_BEST_MG:g} (=100), "
+                f"STEADY_WORST_MG={config.STEADY_WORST_MG:g} (=0) in pi/config.py. Put BEST just "
+                "above your stillest honest holds and WORST around a clearly shaky hold.")
+
+
 def print_leaderboard(log: SessionLog) -> None:
     rows = log.leaderboard()
     print("\n-- Leaderboard (best gap = most calibrated) --")
@@ -181,10 +441,14 @@ def print_leaderboard(log: SessionLog) -> None:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="Delulu Detector Pi controller (Round 1: Reflex)")
+    ap = argparse.ArgumentParser(description="Delulu Detector Pi controller (Round 1: Reflex, Round 2: Steady Hands)")
     ap.add_argument("--port", default=config.SERIAL_PORT, help=f"serial port (default {config.SERIAL_PORT})")
     ap.add_argument("--baud", type=int, default=config.SERIAL_BAUD, help=f"baud rate (default {config.SERIAL_BAUD})")
     ap.add_argument("--player", default="player1", help="player name / id for the session log")
+    ap.add_argument("--round", type=int, choices=sorted(config.ROUND_NAMES), default=None,
+                    help="round type: 1 = Reflex, 2 = Steady Hands (default 1; 2 with --calibrate)")
+    ap.add_argument("--calibrate", action="store_true",
+                    help="Round 2 only: print each hold's raw mg values; no scoring, logging or voice")
     ap.add_argument("--mock", action="store_true", help="simulate Arduino serial input (no hardware)")
     ap.add_argument("--rounds", type=int, default=3, help="rounds to simulate with --mock (default 3)")
     ap.add_argument("--seed", type=int, default=None, help="RNG seed for --mock")
@@ -194,25 +458,56 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--leaderboard", action="store_true", help="print the leaderboard and exit")
     args = ap.parse_args(argv)
 
-    log = SessionLog(args.db)
+    if args.calibrate:
+        if args.round not in (None, ROUND_STEADY):
+            ap.error("--calibrate is for Round 2 (Steady Hands); use --round 2 or leave --round out")
+        args.round = ROUND_STEADY
+    elif args.round is None:
+        args.round = config.DEFAULT_ROUND
+
     if args.leaderboard:
-        print_leaderboard(log)
+        with SessionLog(args.db) as log:
+            print_leaderboard(log)
         return 0
 
+    source = (mock_lines(args.rounds, args.seed, args.mock_delay, args.round) if args.mock
+              else serial_lines(args.port, args.baud, args.round))
+
+    if args.calibrate:
+        print(f"Delulu Detector | CALIBRATION (Round 2 raw mg, nothing scored or logged) | "
+              f"thresholds best {config.STEADY_BEST_MG:g} / worst {config.STEADY_WORST_MG:g} mg RMS")
+        return _run_calibration(source, args.round)
+
+    log = SessionLog(args.db)
+    if log.migration_backup is not None:
+        print(f"Upgraded {args.db} to schema v2 (new columns only); copy of the old file: {log.migration_backup}")
     session_id = new_session_id()
     key_state = "set" if config.ELEVENLABS_API_KEY else "NOT set -> fallback verdicts"
-    print(f"Delulu Detector | session {session_id} | player {args.player} | db {args.db}")
+    print(f"Delulu Detector | session {session_id} | player {args.player} | "
+          f"Round {args.round} ({config.ROUND_NAMES[args.round]}) | db {args.db}")
     print(f"ElevenLabs key {key_state} | TTS timeout {config.ELEVENLABS_TIMEOUT_S}s")
 
-    source = (mock_lines(args.rounds, args.seed, args.mock_delay) if args.mock
-              else serial_lines(args.port, args.baud))
     try:
         for line in source:
+            status = parse_status(line)
+            if status is not None:
+                report_status(status, args.round)
+                continue
             reading = parse_line(line)
             if reading is None:
                 continue
-            if reading["round_id"] != 1:
-                print(f"   (ignoring round_id {reading['round_id']}: only Round 1 is implemented)")
+            rid = reading["round_id"]
+            if rid not in config.ROUND_NAMES:
+                print(f"   (ignoring round_id {rid}: only rounds {sorted(config.ROUND_NAMES)} are implemented)")
+                continue
+            if rid != args.round:
+                print(f"   (note: got a Round {rid} result while Round {args.round} is selected; "
+                      f"the Arduino hasn't switched yet. Scoring it as Round {rid}.)")
+            if is_sensor_error(reading):
+                report_sensor_error(reading)
+                continue
+            if is_resting(reading):
+                report_resting(reading)
                 continue
             process_reading(reading, args.player, session_id, log, play_audio=not args.no_audio)
     except KeyboardInterrupt:
@@ -225,6 +520,31 @@ def main(argv: Optional[list[str]] = None) -> int:
         except sqlite3.Error as exc:
             print(f"   [error] could not read the calibration series: {exc}", file=sys.stderr)
         log.close()
+    return 0
+
+
+def _run_calibration(source: Iterator[str], selected_round: int) -> int:
+    calibrator = Calibrator()
+    try:
+        for line in source:
+            status = parse_status(line)
+            if status is not None:
+                report_status(status, selected_round)
+                continue
+            reading = parse_line(line)
+            if reading is None:
+                continue
+            if reading["round_id"] != ROUND_STEADY:
+                print(f"   (calibrate: ignoring a Round {reading['round_id']} result; "
+                      "the Arduino hasn't switched to Round 2 yet)")
+                continue
+            if is_sensor_error(reading):
+                report_sensor_error(reading)
+                continue
+            calibrator.add(reading)
+    except KeyboardInterrupt:
+        print("\nStopping.")
+    print(f"\n{calibrator.summary()}")
     return 0
 
 

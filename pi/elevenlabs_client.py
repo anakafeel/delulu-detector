@@ -1,11 +1,13 @@
 """Verdict lines + ElevenLabs text-to-speech, with a fallback that never blocks the demo.
 
 deliver_verdict() is the one call main.py makes:
-  1. build the verdict text from the round numbers (template picked by gap tier),
+  1. build the verdict text from the round numbers (template set picked by round
+     type, line picked by gap tier),
   2. try ElevenLabs TTS (REST, `requests`) with a hard total time budget
      (config.ELEVENLABS_TIMEOUT_S, default 3 s, covering connect + download),
   3. on no key / timeout / HTTP error / no audio / mp3 write error: play the pre-recorded fallback
-     (assets/fallback_<tier>.mp3, else assets/fallback_verdict.mp3), and if
+     (assets/fallback_round<N>_<tier>.mp3, else assets/fallback_<tier>.mp3, else
+     assets/fallback_verdict.mp3), and if
      that is missing too, just print the verdict text.
 The verdict text is always printed so the audience can read it.
 """
@@ -28,10 +30,12 @@ import config
 from scoring import RoundResult
 
 # ---------------------------------------------------------------------------
-# Verdict templates. Placeholders: {player} {claim} {perf} {gap} {ms}
-# "over" = claimed more than delivered, "under" = sandbagged.
+# Verdict templates. Placeholders: {player} {claim} {perf} {gap}, plus the raw
+# reading: {ms} (Round 1 reaction time) or {mg} / {peak} (Round 2 tremor RMS /
+# peak, in milli-g). "over" = claimed more than delivered, "under" = sandbagged.
 # This is where the comedy lives; iterate freely.
 # ---------------------------------------------------------------------------
+# Round 1: Reflex.
 TEMPLATES: dict[str, list[str]] = {
     "validated": [
         "{player} claimed {claim} and delivered {perf}. A gap of {gap}. Validated. Annoyingly self-aware.",
@@ -72,6 +76,53 @@ TEMPLATES: dict[str, list[str]] = {
     ],
 }
 
+# Round 2: Steady Hands. Claim = how steady they think they are; perf 100 = rock
+# still, 0 = maximum wobble. No false starts or timeouts in this round.
+STEADY_TEMPLATES: dict[str, list[str]] = {
+    "validated": [
+        "{player} claimed {claim} for steadiness and delivered {perf}. A gap of {gap}. Validated. Steady as a surgeon, and self-aware about it.",
+        "Claim {claim}, reality {perf}. {player}, your hands and your ego agree. Validated. Suspiciously calm.",
+        "{gap} points off. {player} knows exactly how shaky they are. Calibrated. Nobody likes a know-it-all, but the accelerometer doesn't lie.",
+    ],
+    "mild_over": [
+        "{player} said {claim}. The accelerometer said {perf}. A {gap} point gap. A little wobblier than advertised.",
+        "Claimed {claim}, held a {perf}. Slightly delulu, {player}. Steady-ish. Heavy emphasis on the ish.",
+    ],
+    "spicy_over": [
+        "You claimed {claim}. Your hands wobbled {mg} milli-g, which is a {perf}. That's a {gap} point gap. Your confidence is steady. Your hands are not.",
+        "{player}, a {claim}? Reality scored your steadiness {perf}. {gap} points of caffeine and vibes.",
+    ],
+    "delulu_over": [
+        "{claim} out of 100 for steadiness? {mg} milli-g of tremor. That is a {gap} point gap. Hands like a leaf in a hurricane. Certified delulu.",
+        "{player} claimed {claim} and delivered {perf}. A {gap} point gap. Please never become a bomb disposal technician.",
+    ],
+    "mild_under": [
+        "{player} claimed only {claim} and held a {perf}. Underconfident by {gap}. Steadier than you think.",
+    ],
+    "spicy_under": [
+        "You said {claim}, you delivered {perf}. {gap} points of sandbagging, {player}. Those are surgeon hands. Own it.",
+    ],
+    "delulu_under": [
+        "{player} claimed {claim} and then held still like a statue for a {perf}. A {gap} point gap in the wrong direction. Reverse delulu. Are you even breathing?",
+    ],
+    "void": [
+        "That round didn't count, {player}. Reset and try again.",
+    ],
+}
+
+# round_id -> templates. Unknown round types fall back to the Round 1 set.
+ROUND_TEMPLATES: dict[int, dict[str, list[str]]] = {
+    1: TEMPLATES,
+    2: STEADY_TEMPLATES,
+}
+
+# Placeholders that need the raw reading; lines using them are skipped when it is missing.
+_RAW_PLACEHOLDERS = ("{ms}", "{mg}", "{peak}")
+
+
+def templates_for(round_id: int) -> dict[str, list[str]]:
+    return ROUND_TEMPLATES.get(round_id, TEMPLATES)
+
 
 def _fmt(x: Optional[float]) -> str:
     return "unknown" if x is None else str(int(round(x)))
@@ -84,19 +135,31 @@ def template_key(result: RoundResult) -> str:
     return f"{result.tier}_{direction}"
 
 
+def _needs_missing_value(line: str, values: dict) -> bool:
+    return any(p in line and values[p[1:-1]] is None for p in _RAW_PLACEHOLDERS)
+
+
 def build_verdict_text(result: RoundResult, player: str, rng: Optional[random.Random] = None) -> str:
     rng = rng or random
-    options = TEMPLATES.get(template_key(result)) or TEMPLATES["void"]
+    templates = templates_for(result.round_id)
+    options = templates.get(template_key(result)) or templates.get("void") or TEMPLATES["void"]
+    raw = {
+        "ms": result.actual_ms,
+        "mg": result.actual if result.unit == "mg_rms" else None,
+        "peak": result.extra.get("peak") if result.extra else None,
+    }
     line = rng.choice(options)
-    if result.actual_ms is None and "{ms}" in line:
-        # never say "unknown milliseconds" out loud
-        line = next((t for t in options if "{ms}" not in t), TEMPLATES["void"][0])
+    if _needs_missing_value(line, raw):
+        # never say "unknown milliseconds" (or milli-g) out loud
+        line = next((t for t in options if not _needs_missing_value(t, raw)), TEMPLATES["void"][0])
     return line.format(
         player=player,
         claim=_fmt(result.claim),
         perf=_fmt(result.performance),
         gap=_fmt(result.gap),
-        ms=_fmt(result.actual_ms),
+        ms=_fmt(raw["ms"]),
+        mg=_fmt(raw["mg"]),
+        peak=_fmt(raw["peak"]),
     )
 
 
@@ -241,8 +304,11 @@ def play_audio(path: Path) -> bool:
         return False
 
 
-def fallback_audio_for(tier: str) -> Optional[Path]:
-    for candidate in (config.ASSETS_DIR / f"fallback_{tier}.mp3", config.FALLBACK_AUDIO):
+def fallback_audio_for(tier: str, round_id: Optional[int] = None) -> Optional[Path]:
+    candidates = [config.ASSETS_DIR / f"fallback_{tier}.mp3", config.FALLBACK_AUDIO]
+    if round_id is not None:
+        candidates.insert(0, config.ASSETS_DIR / f"fallback_round{round_id}_{tier}.mp3")
+    for candidate in candidates:
         if candidate.is_file():
             return candidate
     return None
@@ -274,7 +340,7 @@ def deliver_verdict(result: RoundResult, player: str, play: bool = True) -> Verd
     except TTSError as exc:
         reason = str(exc)
     elapsed = time.monotonic() - t0
-    fallback = fallback_audio_for(result.tier)
+    fallback = fallback_audio_for(result.tier, result.round_id)
     if fallback is not None:
         print(f"   [fallback] TTS unavailable ({reason}); playing {fallback.name}")
         if play:
