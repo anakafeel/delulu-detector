@@ -274,13 +274,15 @@ def mock_lines(rounds: int, seed: Optional[int], delay_s: float,
 
 def _mock_steady_lines(rounds: int, seed: Optional[int], delay_s: float) -> Iterator[str]:
     rng = random.Random(seed)
-    true_mg = rng.uniform(12, 45)                   # this player's real tremor, mg RMS
+    # A real hand measured about 68 mg RMS steady and far more when shaky (docs/calibration);
+    # stay above STEADY_REST_MG so mock holds aren't rejected as 'set down on the table'.
+    true_mg = rng.uniform(45, 250)                  # this player's real tremor, mg RMS
     overconfidence = rng.uniform(35, 55)
     full_window_samples = 500                       # 5 s at 100 Hz
     for seq in range(1, rounds + 1):
         for state in ("locked", "countdown", "hold"):
             yield json.dumps({"type": "status", "state": state})
-        mg = round(max(3.0, rng.gauss(true_mg, true_mg * 0.25)), 1)
+        mg = round(max(40.0, rng.gauss(true_mg, true_mg * 0.25)), 1)
         perf_guess = tremor_mg_to_performance(true_mg)
         claim = int(max(0, min(100, perf_guess + overconfidence + rng.uniform(-5, 5))))
         overconfidence *= 0.55
