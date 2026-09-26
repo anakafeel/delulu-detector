@@ -55,3 +55,119 @@ def test_unexpected_error_is_reported_with_traceback(monkeypatch, tmp_path, caps
         assert main.process_reading(reading, "p", "s", log, play_audio=False) is False
     err = capsys.readouterr().err
     assert "unexpected ValueError" in err and "Traceback" in err
+
+
+# --------------------------------------------------------------- Round 2
+MOCK_R2 = ["--mock", "--round", "2", "--mock-delay", "0", "--no-audio"]
+
+
+def _result_lines(rounds, seed, round_id):
+    lines = list(main.mock_lines(rounds, seed, 0, round_id))
+    return [main.parse_line(ln) for ln in lines if main.parse_line(ln) is not None]
+
+
+def test_mock_round_2_emits_arduino_format():
+    results = _result_lines(40, 7, 2)
+    assert len(results) == 40
+    assert all(r["round_id"] == 2 and r["unit"] == "mg_rms" for r in results)
+    good = [r for r in results if not main.is_sensor_error(r)]
+    bad = [r for r in results if main.is_sensor_error(r)]
+    assert good and bad                                      # the odd I2C hiccup is simulated
+    assert all(r["actual"] > 0 and r["peak"] >= r["actual"] and r["samples"] == 500 for r in good)
+    assert all(r["error"] == "accel_read" and r["actual"] is None for r in bad)
+    assert not any(r["false_start"] or r["timeout"] for r in results)
+
+
+def test_mock_round_1_is_unchanged_by_round_2_support():
+    results = _result_lines(5, 1, 1)
+    assert [r["round_id"] for r in results] == [1] * 5
+    assert all(r["unit"] == "ms" and "peak" not in r for r in results)
+
+
+def test_mock_round_2_end_to_end_logs_mg(monkeypatch, tmp_path):
+    verdicts = []
+    monkeypatch.setattr(main, "deliver_verdict", lambda r, p, play=True: verdicts.append(r))
+    db = tmp_path / "s.db"
+    assert main.main(MOCK_R2 + ["--rounds", "12", "--seed", "4", "--db", str(db)]) == 0
+    expected = [r for r in _result_lines(12, 4, 2) if not main.is_sensor_error(r)]
+    with SessionLog(db) as log:
+        rows = log.rounds()
+    assert len(rows) == len(verdicts) == len(expected) < 12    # sensor errors are not logged
+    for row, reading in zip(rows, expected):
+        assert row["round_id"] == 2 and row["unit"] == "mg_rms"
+        assert row["actual"] == reading["actual"] and row["actual_ms"] is None
+        assert row["gap"] is not None and row["score"] == 100 - round(row["gap"])
+
+
+def test_sensor_error_result_is_reported_not_logged(monkeypatch, tmp_path, capsys):
+    lines = ['{"type":"status","state":"mode","round_id":2,"accel":"none"}',
+             '{"type":"result","round_id":2,"seq":1,"claim":72,"actual":null,"unit":"mg_rms",'
+             '"peak":null,"samples":0,"false_start":false,"timeout":false,"error":"no_accel"}']
+    monkeypatch.setattr(main, "mock_lines", lambda *a, **k: iter(lines))
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    db = tmp_path / "s.db"
+    assert main.main(MOCK_R2 + ["--db", str(db)]) == 0
+    err = capsys.readouterr().err
+    assert "no accelerometer detected" in err
+    assert "sensor error 'no_accel'" in err and "Not scored or logged" in err
+    with SessionLog(db) as log:
+        assert log.rounds() == []
+
+
+def test_mismatched_round_result_is_scored_as_its_own_round(monkeypatch, tmp_path, capsys):
+    lines = ['{"type":"result","round_id":1,"seq":1,"claim":50,"actual":300,"unit":"ms",'
+             '"false_start":false,"timeout":false}']
+    monkeypatch.setattr(main, "mock_lines", lambda *a, **k: iter(lines))
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    db = tmp_path / "s.db"
+    main.main(MOCK_R2 + ["--db", str(db)])
+    assert "Round 1 result while Round 2 is selected" in capsys.readouterr().out
+    with SessionLog(db) as log:
+        (row,) = log.rounds()
+    assert row["round_id"] == 1 and row["actual_ms"] == 300
+
+
+def test_calibrate_prints_raw_mg_and_never_scores_or_logs(monkeypatch, tmp_path, capsys):
+    def boom(*a, **k):
+        raise AssertionError("calibrate must not score, narrate or log")
+
+    monkeypatch.setattr(main, "deliver_verdict", boom)
+    monkeypatch.setattr(main, "process_reading", boom)
+    db = tmp_path / "never.db"
+    assert main.main(["--mock", "--calibrate", "--rounds", "6", "--seed", "4",
+                      "--mock-delay", "0", "--db", str(db)]) == 0
+    out = capsys.readouterr().out
+    good = [r for r in _result_lines(6, 4, 2) if not main.is_sensor_error(r)]
+    for r in good:
+        assert f"tremor {r['actual']:.1f} mg RMS" in out
+    assert out.count("calib #") == len(good)
+    assert "Calibration:" in out and "STEADY_BEST_MG=8" in out
+    assert not db.exists()
+
+
+def test_calibrate_ignores_round_1_results(monkeypatch, capsys):
+    lines = ['{"type":"result","round_id":1,"claim":50,"actual":300}']
+    monkeypatch.setattr(main, "mock_lines", lambda *a, **k: iter(lines))
+    assert main.main(["--mock", "--calibrate"]) == 0
+    out = capsys.readouterr().out
+    assert "ignoring a Round 1 result" in out and "No Round 2 holds recorded" in out
+
+
+def test_calibrate_rejects_round_1():
+    import pytest
+    with pytest.raises(SystemExit):
+        main.main(["--mock", "--calibrate", "--round", "1"])
+
+
+def test_round_flag_selects_mock_round(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_mock(rounds, seed, delay, round_id):
+        seen["round"] = round_id
+        return iter([])
+
+    monkeypatch.setattr(main, "mock_lines", fake_mock)
+    main.main(["--mock", "--db", str(tmp_path / "a.db")])
+    assert seen["round"] == 1
+    main.main(["--mock", "--round", "2", "--db", str(tmp_path / "a.db")])
+    assert seen["round"] == 2
