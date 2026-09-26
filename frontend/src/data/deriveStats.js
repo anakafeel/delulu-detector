@@ -1,7 +1,6 @@
-// Pure helpers that turn the flat `history` array (list of round results, per
-// the data contract + the mock `player` extension) into what the leaderboard
-// and calibration curve need to render. No fetching, no state — easy to unit
-// test later if there's time.
+// Pure helpers that turn the flat `history` array (list of round results)
+// into what the leaderboard and calibration curve need to render. No fetching,
+// no state — easy to unit test later if there's time.
 
 export function leaderboardRows(history) {
   const byPlayer = new Map()

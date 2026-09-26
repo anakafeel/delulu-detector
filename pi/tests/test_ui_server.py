@@ -45,7 +45,8 @@ def test_starts_idle_with_frontend_shape(state):
         assert key in snap
     assert snap["player"] == "Saim"
     assert snap["history"] == []
-    assert snap["selectedRound"] == {"round_id": "reflex", "round_type_id": 1, "round_name": "Reflex"}
+    assert snap["selectedRound"] == {"round_id": "reflex", "round_type_id": 1, "round_name": "Reflex",
+                                   "round_label": 1}
     json.dumps(snap, allow_nan=False)
 
 
@@ -218,12 +219,33 @@ def test_version_bumps_on_change_only(state):
     assert state.snapshot()["version"] == v + 1
 
 
-def test_wait_for_change_returns_new_json_or_none(state):
-    first = state.snapshot_json()
-    assert state.wait_for_change(None, 0.1) == first
-    assert state.wait_for_change(first, 0.05) is None
+def test_next_event_returns_new_state_or_none(state):
+    kind, data, cursor = state.next_event(None, 0.1)
+    assert kind == "state" and data == state.snapshot_json()
+    assert state.next_event(cursor, 0.05) is None
     state.on_status(status("mode", round_id=1))
-    assert json.loads(state.wait_for_change(first, 0.5))["screen"] == "predicting"
+    kind, data, cursor = state.next_event(cursor, 0.5)
+    assert kind == "state" and json.loads(data)["screen"] == "predicting"
+
+
+def test_next_event_sends_knob_turns_as_small_dial_events(state):
+    state.on_status(status("mode", round_id=1))
+    _, _, cursor = state.next_event(None, 0.1)
+    state.dial(41)
+    kind, data, cursor = state.next_event(cursor, 0.5)
+    assert kind == "dial" and json.loads(data) == {"liveClaim": 41}
+    assert state.next_event(cursor, 0.05) is None
+    state.on_status(status("locked", claim=41))     # a real change: the full state again
+    kind, data, _ = state.next_event(cursor, 0.5)
+    assert kind == "state" and json.loads(data)["screen"] == "performing"
+
+
+def test_next_event_catches_time_based_screen_changes(state, clock):
+    state.on_status(status("mode", round_id=1))
+    _, _, cursor = state.next_event(None, 0.1)
+    clock.t += 61                                    # idle timeout, no event method called
+    kind, data, _ = state.next_event(cursor, 0.1)
+    assert kind == "state" and json.loads(data)["screen"] == "idle"
 
 
 # ------------------------------------------------------------------------ HTTP
@@ -289,8 +311,9 @@ def test_without_dist_shows_instructions(state, tmp_path):
         srv.stop()
 
 
-def _read_sse_event(fp):
-    data = []
+def _read_sse(fp):
+    """One SSE event -> (event name or None, raw data str)."""
+    data, name = [], None
     while True:
         line = fp.readline()
         if not line:
@@ -298,8 +321,16 @@ def _read_sse_event(fp):
         line = line.decode().rstrip("\r\n")
         if line.startswith("data: "):
             data.append(line[6:])
+        elif line.startswith("event: "):
+            name = line[7:]
         elif line == "" and data:
-            return json.loads("\n".join(data))
+            return name, "\n".join(data)
+
+
+def _read_sse_event(fp):
+    name, data = _read_sse(fp)
+    assert name is None                              # a full-state message
+    return json.loads(data)
 
 
 def test_sse_pushes_state_on_every_change(server, state):
@@ -313,6 +344,45 @@ def test_sse_pushes_state_on_every_change(server, state):
     assert _read_sse_event(resp)["screen"] == "predicting"
     state.on_status(status("locked"))
     assert _read_sse_event(resp)["screen"] == "performing"
+    conn.close()
+
+
+def test_sse_dial_updates_do_not_resend_history(server, state, clock):
+    for n in range(1, 31):                           # a real-sized history
+        state.round_result(score_reflex_round(50 + n % 40, 250 + n), "Saim", "sess-1", n)
+    state.on_status(status("ready"))
+    conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
+    conn.request("GET", "/api/events")
+    resp = conn.getresponse()
+    first = _read_sse_event(resp)
+    assert len(first["history"]) == 30 and first["screen"] == "reveal"
+    clock.t += 11                                    # past the reveal hold: claim screen
+    assert _read_sse_event(resp)["screen"] == "predicting"
+    state.dial(39)                                   # first turn after a reveal: phase change, full state
+    assert _read_sse_event(resp)["liveClaim"] == 39
+    sizes = []
+    for v in (40, 41, 42, 43):
+        state.dial(v)
+        name, data = _read_sse(resp)
+        assert name == "dial" and json.loads(data) == {"liveClaim": v}
+        assert "history" not in data and "leaderboard" not in data
+        sizes.append(len(data))
+    assert max(sizes) < 40                           # vs. the full state
+    full = state.snapshot()
+    assert full["liveClaim"] == 43 and len(full["history"]) == 30   # /api/state stays complete
+    state.on_status(status("locked", claim=43))
+    snap = _read_sse_event(resp)
+    assert snap["screen"] == "performing" and len(snap["history"]) == 30
+    conn.close()
+
+
+def test_api_state_includes_the_live_dial(server, state):
+    state.on_status(status("mode", round_id=1))
+    state.dial(64)
+    conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
+    conn.request("GET", "/api/state")
+    body = json.loads(conn.getresponse().read())
+    assert body["liveClaim"] == 64 and "history" in body and "leaderboard" in body
     conn.close()
 
 
@@ -371,6 +441,7 @@ def test_real_ui_state_through_process_reading(monkeypatch, tmp_path):
 
 def test_main_mock_with_ui_updates_state_and_serves(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
     monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
     captured = {}
     real_start = main.start_ui
@@ -399,13 +470,14 @@ def test_main_mock_with_ui_updates_state_and_serves(monkeypatch, tmp_path):
 
 def test_main_mock_steady_sensor_error_reaches_the_ui(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
     monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
     rejected = []
     monkeypatch.setattr(ui_server.GameState, "round_rejected",
                         lambda self, msg: rejected.append(msg))
     monkeypatch.setattr(main, "linger_for_ui", lambda srv: None)
     # seed 1 on Round 2 includes an accelerometer hiccup (error result) within 4 rounds
-    main.main(["--mock", "--round", "2", "--rounds", "4", "--seed", "1", "--mock-delay", "0",
+    main.main(["--mock", "--legacy-rounds", "--round", "2", "--rounds", "4", "--seed", "1", "--mock-delay", "0",
                "--no-audio", "--db", str(tmp_path / "s.db"), "--ui", "--ui-host", "127.0.0.1",
                "--ui-port", "0"])
     assert rejected and all("accel_read" in m for m in rejected)
@@ -417,3 +489,48 @@ def test_main_without_ui_starts_no_server(monkeypatch, tmp_path):
                         lambda self: pytest.fail("server started without --ui"))
     assert main.main(["--mock", "--rounds", "1", "--mock-delay", "0", "--no-audio",
                       "--db", str(tmp_path / "s.db")]) == 0
+
+
+# ------------------------------------------------------------- Round 5 (Poker Face)
+def test_main_mock_poker_face_shows_claim_then_smile_result(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    claims, results = [], []
+    real_claim, real_result = ui_server.GameState.claim_locked, ui_server.GameState.round_result
+
+    def spy_claim(self, round_id, claim):
+        real_claim(self, round_id, claim)
+        claims.append(self.snapshot())
+
+    def spy_result(self, *a, **k):
+        real_result(self, *a, **k)
+        results.append(self.snapshot())
+
+    monkeypatch.setattr(ui_server.GameState, "claim_locked", spy_claim)
+    monkeypatch.setattr(ui_server.GameState, "round_result", spy_result)
+    monkeypatch.setattr(main, "linger_for_ui", lambda srv: None)
+    assert main.main(["--mock", "--round", "5", "--rounds", "2", "--seed", "3", "--mock-delay", "0",
+                      "--no-audio", "--db", str(tmp_path / "s.db"), "--ui", "--ui-host", "127.0.0.1",
+                      "--ui-port", "0"]) == 0
+    assert claims and claims[0]["screen"] == "performing"
+    assert claims[0]["activeRound"]["round_id"] == "poker_face"
+    assert isinstance(claims[0]["liveClaim"], int)
+    assert results, "no Round 5 result reached the UI"
+    r = results[-1]["latestResult"]
+    assert r["round_key"] == "poker_face" and r["round_type_id"] == 5
+    assert r["actual_unit"] == "smile_pct" and 0 <= r["actual_raw"] <= 100
+    assert results[-1]["screen"] == "reveal"
+
+
+def test_poker_vision_failure_reaches_the_ui_as_a_notice(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    monkeypatch.setattr(main, "linger_for_ui", lambda srv: None)
+    monkeypatch.setattr(main, "run_face_claim", lambda claim, poker, selected: None)
+    rejected = []
+    monkeypatch.setattr(ui_server.GameState, "round_rejected", lambda self, msg: rejected.append(msg))
+    main.main(["--mock", "--round", "5", "--rounds", "1", "--mock-delay", "0", "--no-audio",
+               "--db", str(tmp_path / "s.db"), "--ui", "--ui-host", "127.0.0.1", "--ui-port", "0"])
+    assert rejected and "Camera / vision error" in rejected[0]

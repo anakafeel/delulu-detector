@@ -1,11 +1,11 @@
 // Turns the Pi's /api/state JSON (pi/ui_server.py) into exactly what the
-// components already render. The Pi sends the same shape as the mock
-// ({screen, player, activeRound, liveClaim, latestResult, history}); this only
+// components render. The Pi sends
+// {screen, player, activeRound, liveClaim, latestResult, history}; this only
 // fills in display details from roundDefs.js and handles rounds without a gap.
 import { roundById, roundByNumber } from './roundDefs'
 
 // Fallback display units for the Pi's raw unit codes, if a round isn't in roundDefs.
-const UNIT_SUFFIX = { ms: 'ms', mg_rms: ' mg RMS', smile_pct: '% smiling' }
+const UNIT_SUFFIX = { ms: 'ms', mg_rms: ' mg RMS', smile_pct: '% smiling', s: ' s held', composure: ' composure' }
 
 function defFor(key, number) {
   return roundById(key) ?? roundByNumber(number) ?? null
@@ -14,7 +14,14 @@ function defFor(key, number) {
 function toActiveRound(active) {
   if (!active) return null
   const def = defFor(active.round_id, active.round_type_id)
-  return def ? { ...def, round_type_id: active.round_type_id } : { prompt: '', ...active }
+  if (!def) return { prompt: '', ...active }
+  // The Pi's own label and seconds scale win (config.ROUND_LABELS / STRAIGHT_MAX_S).
+  return {
+    ...def,
+    round_type_id: active.round_type_id,
+    label: active.round_label ?? def.label,
+    claim_max_s: active.claim_max_s ?? def.claim_max_s,
+  }
 }
 
 function failedLabel(r) {
@@ -37,7 +44,8 @@ export function toUiResult(r) {
     claim: Math.round(r.claim ?? 0),
     actual: scored ? Math.round(r.actual ?? 0) : 0,
     actual_raw: scored ? r.actual_raw : failedLabel(r),
-    actual_unit: scored ? (def?.actual_unit ?? UNIT_SUFFIX[r.actual_unit] ?? r.actual_unit ?? '') : '',
+    // The Pi's unit is what was scored. The round def is only a fallback.
+    actual_unit: scored ? (UNIT_SUFFIX[r.actual_unit] ?? def?.actual_unit ?? r.actual_unit ?? '') : '',
     gap: scored ? Math.round(r.gap) : 100,
     verdict_text: r.verdict_text ?? '',
   }

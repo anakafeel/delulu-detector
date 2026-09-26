@@ -1,4 +1,4 @@
-"""Verdict lines + ElevenLabs text-to-speech, with a fallback that never blocks the demo.
+"""Verdict lines + ElevenLabs text-to-speech.
 
 deliver_verdict() is the one call main.py makes:
   1. build the verdict text from the round numbers (template set picked by round
@@ -6,12 +6,15 @@ deliver_verdict() is the one call main.py makes:
      player in a session),
   2. try ElevenLabs TTS (REST, `requests`) with a hard total time budget
      (config.ELEVENLABS_TIMEOUT_S, default 3 s, covering connect + download),
-  3. on no key / timeout / HTTP error / no audio / mp3 write error: play the pre-recorded fallback
-     (assets/fallback_round<N>_<tier>.mp3, else assets/fallback_<tier>.mp3, else
-     assets/fallback_verdict.mp3), and if
-     that is missing too, just print the verdict text.
-The verdict text is always printed so the audience can read it.
-The fallback lines live in FALLBACK_LINES; pi/make_fallbacks.py turns them into mp3s.
+  3. on no key / timeout / HTTP error / no audio / mp3 write error: play nothing.
+     The returned Verdict has source "unavailable" and error/reason set to why.
+The verdict text is always printed so the audience can read it. Nothing is read
+from assets/fallback_*.mp3.
+The interview questions the face rounds play (the stimulus, not verdicts) live in
+POKER_QUESTION_LINES / PRESSURE_QUESTION_LINES.
+
+The narrator's voice (The Tell): a skeptical interviewer who is also your
+brutally honest friend. Dry, specific, unimpressed by claims, fair about evidence.
 """
 from __future__ import annotations
 
@@ -34,77 +37,83 @@ from scoring import RoundResult
 
 # ---------------------------------------------------------------------------
 # Verdict templates. Placeholders: {player} {claim} {perf} {gap}, plus the raw
-# reading: {ms} (Round 1 reaction time) or {mg} / {peak} (Round 2 tremor RMS /
-# peak, in milli-g). "over" = claimed more than delivered, "under" = sandbagged.
-# This is where the comedy lives; iterate freely, within these rules:
+# reading: {ms} (Round 1 reaction time), {mg} / {peak} (legacy Steady Hands
+# tremor RMS / peak, in milli-g), {smile} / {secs} (Poker Face: percent of face
+# frames with a smile / whole seconds until the first smile) or {held} /
+# {claimsecs} (Straight Face: seconds the face held / seconds the dial claimed).
+# "over" = claimed more than delivered, "under" = sandbagged.
+# Voice: a skeptical interviewer who is also your brutally honest friend. Dry,
+# specific, unimpressed by claims, fair about the evidence. Rules:
 #   - at most MAX_VERDICT_WORDS words once filled in (tests render every line
 #     with a 10-character name and 3-digit numbers), so the line stays short to
 #     say and quick to synthesize inside the 3 s budget,
-#   - roast "over", gently tease "under", validate "validated",
+#   - press hardest on "over", needle "under" (why lowball?), grudgingly
+#     validate "validated",
 #   - party-friendly: PG-13 at most, never about appearance or identity,
 #   - at least 4 lines per key, so repeat plays don't sound canned.
-# Lines that use {ms} / {mg} / {peak} are skipped when that reading is missing.
+# Lines that use a raw placeholder are skipped when that reading is missing
+# ({secs} is missing whenever the player never smiled).
 # ---------------------------------------------------------------------------
 MAX_VERDICT_WORDS = 18
 
 # Round 1: Reflex.
 TEMPLATES: dict[str, list[str]] = {
     "validated": [
-        "{player} called {claim}, hit {perf}. Validated. Annoyingly self-aware.",
-        "Claim {claim}, reality {perf}. {player} actually knows themselves. Validated. Rare.",
-        "{player} predicted {claim} and nailed it. Calibrated. Nobody likes a know-it-all, but here we are.",
-        "{ms} milliseconds, exactly as advertised. Validated, {player}. Your ego and your reflexes agree.",
-        "{player} said {claim}, the button said {perf}. Validated. Frankly, a little boring.",
+        "{player} called {claim}, hit {perf}. I checked twice. You actually know yourself. Rare.",
+        "Claim {claim}, reality {perf}. {player}, I came to roast you and you gave me nothing.",
+        "{ms} milliseconds, exactly as advertised. Fine, {player}. Your self-assessment survives cross-examination.",
+        "{player} said {claim}, the button said {perf}. No notes. I hate that.",
+        "Honest answer, honest reflexes. {player}, you'd pass a reference check. Validated.",
     ],
     "mild_over": [
-        "{player} said {claim}. Their thumb said {perf}. Light delusion. We've all been there.",
-        "Claimed {claim}, delivered {perf}. Slightly delulu, {player}. Nothing a little humility can't fix.",
-        "{ms} milliseconds. Decent, {player}, just not {claim} decent. Mildly delulu.",
-        "{gap} points over. {player}, your confidence is jogging slightly ahead of your reflexes.",
-        "{player} claimed {claim}, scored {perf}. Close. Your ego rounded up.",
+        "{player} said {claim}. Their thumb said {perf}. Let's call that a generous self-review.",
+        "Claimed {claim}, delivered {perf}. {player}, as a friend: you rounded up.",
+        "{ms} milliseconds. Decent, {player}. Just not {claim} decent. Noted for the file.",
+        "{gap} points over. {player}, your resume is slightly ahead of your reflexes.",
+        "{player} claimed {claim}, scored {perf}. Close. But I did notice the rounding.",
     ],
     "spicy_over": [
-        "You claimed {claim}. You took {ms} milliseconds. Your confidence wrote a check your reflexes can't cash.",
-        "{player}, a {claim}? Reality says {perf}. That's {gap} points of pure vibes.",
-        "{ms} milliseconds, {player}? Even a sloth said hurry up. Spicy delulu.",
-        "Claimed {claim}, delivered {perf}. {player}, that wasn't a reflex, that was a slow-motion replay.",
-        "{player} dialed {claim}, then reacted like it was Monday morning. Reality: {perf}. Spicy.",
+        "You claimed {claim}. You took {ms} milliseconds. I'm going to need you to explain that gap.",
+        "{player}, a {claim}? Reality says {perf}. Walk me through your thinking there.",
+        "{ms} milliseconds, {player}. Be honest. Were you even looking at the light?",
+        "Claimed {claim}, delivered {perf}. {player}, I say this as a friend: no.",
+        "{player} dialed {claim}, then reacted like it was Monday morning. Reality: {perf}. Explain.",
     ],
     "delulu_over": [
-        "{claim} out of 100? {ms} milliseconds. Certified delulu. Please step away from the dial.",
-        "{player} claimed {claim}, delivered {perf}. A psychology textbook just gained a new example.",
+        "{claim} out of 100? {ms} milliseconds. {player}, I'm not writing that down. Delulu.",
+        "{player} claimed {claim}, delivered {perf}. That's not confidence, that's fiction with a dial.",
         "{gap} points of pure fiction. {player}, the cue came and went. So did your credibility.",
-        "{ms} milliseconds after claiming {claim}? {player}, glaciers have better reflexes. Delulu.",
-        "Claimed {claim}, scored {perf}. {player}, that confidence should be studied. By scientists. Delulu.",
+        "{ms} milliseconds after claiming {claim}? {player}, your friends were too polite to tell you.",
+        "Claimed {claim}, scored {perf}. {player}, we need to talk about how you see yourself.",
     ],
     "mild_under": [
-        "{player} claimed only {claim} and hit {perf}. Humble, but wrong.",
-        "{player}, you said {claim}, you did {perf}. Give yourself some credit. Not too much.",
-        "{ms} milliseconds from someone who dialed {claim}. Sneaky modest, {player}.",
-        "{gap} points under. {player} is quicker than they think. Mildly humble.",
+        "{player} claimed only {claim} and hit {perf}. Humble. Also wrong.",
+        "{player}, you said {claim}, you did {perf}. Stop underselling. It's not a cute look.",
+        "{ms} milliseconds from someone who dialed {claim}. Suspiciously modest, {player}.",
+        "{gap} points under. {player} is quicker than they admit. Why hide it?",
     ],
     "spicy_under": [
-        "You said {claim}, you delivered {perf}. {gap} points of sandbagging, {player}. Believe in yourself.",
-        "{player} dialed {claim}, then reacted in {ms} milliseconds. Who hurt you?",
-        "Claimed {claim}, scored {perf}. {player}, that's not humility, that's a hustle.",
-        "{perf} from a self-declared {claim}? {player}, your reflexes deserve a better publicist.",
+        "You said {claim}, you delivered {perf}. {gap} points of sandbagging, {player}. What are you hiding?",
+        "{player} dialed {claim}, then reacted in {ms} milliseconds. Who taught you to lowball?",
+        "Claimed {claim}, scored {perf}. {player}, that's not humility, that's a negotiating tactic.",
+        "{perf} from a self-declared {claim}? {player}, fire whoever writes your self-reviews.",
     ],
     "delulu_under": [
-        "{player} claimed {claim}, then posted a {perf}. Reverse delulu. Suspicious.",
-        "{claim}? You reacted in {ms} milliseconds, {player}. Stop sandbagging, we see you.",
-        "{gap} points in the wrong direction. {player}, you're a secret speed demon.",
-        "{player} dialed {claim} and hit {perf}. Classic hustler move. Reverse delulu.",
+        "{player} claimed {claim}, then posted a {perf}. Reverse delulu. I don't trust it.",
+        "{claim}? You reacted in {ms} milliseconds, {player}. Stop sandbagging, we can all see you.",
+        "{gap} points in the wrong direction. {player}, you're either modest or running a hustle.",
+        "{player} dialed {claim} and hit {perf}. Nobody lowballs that hard by accident. Reverse delulu.",
     ],
     "false_start": [
-        "{player} locked in {claim} and jumped the gun. Confidence so high it time-travelled.",
-        "False start! {player} claimed {claim} and couldn't wait for the light. Score: zero.",
-        "{player} claimed {claim} and pressed before the cue. Bold. Wrong. Zero points.",
-        "Whoa, {player}! {claim} confidence, zero patience. False start, zero points.",
+        "{player} locked in {claim} and jumped the gun. Eager. Wrong. Zero points.",
+        "False start! {player} claimed {claim} and couldn't wait for the light. Zero.",
+        "{player} claimed {claim} and pressed before the cue. Answering before the question. Zero.",
+        "Whoa, {player}. {claim} confidence, zero patience. False start, zero points.",
     ],
     "timeout": [
-        "{player} claimed {claim}, then never pressed the button. Zero. Are you still with us?",
-        "Timeout! {player} dialed {claim}, then forgot the button exists. Zero points.",
-        "{player} claimed {claim}, and the light is still waiting for you. Timeout. Zero.",
+        "{player} claimed {claim}, then never pressed the button. Zero. Take your time. Actually, don't.",
+        "Timeout! {player} dialed {claim}, then went quiet. I'll take that as no comment. Zero.",
+        "{player} claimed {claim}, and the light is still waiting. Timeout. Zero.",
         "{claim} out of 100, {player}? You didn't even press. Bold strategy. Zero.",
     ],
     # Safety net for any tier without its own lines (not produced by scoring
@@ -113,7 +122,7 @@ TEMPLATES: dict[str, list[str]] = {
         "That round didn't count, {player}. Reset and try again.",
         "{player}, that one's void. Shake it off and go again.",
         "No verdict this time, {player}. Reset and run it back.",
-        "That round is void, {player}. The narrator demands a rematch.",
+        "That round is void, {player}. I'll allow a second interview.",
     ],
 }
 
@@ -174,14 +183,130 @@ STEADY_TEMPLATES: dict[str, list[str]] = {
     ],
 }
 
+# Poker Face (The Tell's Round 2, id 5). Claim = how unreadable their face is;
+# perf 100 = never cracked a smile, 0 = smiled through the whole question.
+# "over" = claimed a stone face and cracked, "under" = doubted themselves and
+# stayed stony. No false starts or timeouts in this round.
+POKER_TEMPLATES: dict[str, list[str]] = {
+    "validated": [
+        "{player} claimed {claim}, held a {perf}. You know exactly how readable you are. Unsettling.",
+        "Claim {claim}, reality {perf}. {player}, tough question, straight answer. Validated.",
+        "{player} predicted {claim} and the camera agrees. I have no follow-up questions.",
+        "Smiled {smile} percent of the time, just as {player} predicted. Validated. Great in negotiations.",
+        "{player} dialed {claim}, delivered {perf}. The camera has no notes. Neither do I.",
+    ],
+    "mild_over": [
+        "{player} said {claim}. The camera said {perf}. A small tell. I saw it.",
+        "Claimed {claim}, held a {perf}. Composed-ish, {player}. The ish is doing heavy lifting.",
+        "{smile} percent smile from a claimed {claim}. Close, {player}. But the camera noticed.",
+        "{gap} points over, {player}. Your mouth answered before you did.",
+        "Cracked after {secs} seconds, {player}. Claimed {claim}. Nearly a poker face. Nearly.",
+    ],
+    "spicy_over": [
+        "{player}, a {claim}? You smiled {smile} percent of the time. That's not a poker face, that's a tell.",
+        "Claimed {claim}, cracked in {secs} seconds. {player}, please never negotiate your own salary.",
+        "{player} dialed {claim}, then grinned at an interview question. Reality: {perf}. Explain yourself.",
+        "Claimed {claim}, held a {perf}. {player}, your face answered the question for you.",
+        "{gap} points of bluffing, {player}. The camera called it. So did I.",
+    ],
+    "delulu_over": [
+        "{claim} for poker face? You smiled {smile} percent of the time. Certified delulu. Next candidate.",
+        "{player} claimed {claim}, cracked in {secs} seconds. That's not a poker face, that's a billboard.",
+        "{gap} points of pure fiction, {player}. Your face folded before the question even finished.",
+        "{player} said {claim}. The camera said {perf}. As your friend: you have a tell. Several.",
+        "Claimed {claim}, scored {perf}. {player}, your face keeps secrets like a group chat.",
+    ],
+    "mild_under": [
+        "{player} claimed only {claim} and held a {perf}. More composed than you think.",
+        "{gap} points under, {player}. Your face is calmer than your inner monologue.",
+        "Only {smile} percent smile, {player}? You dialed {claim}. Give your poker face some credit.",
+        "Claimed {claim}, held a {perf}. {player}, modest and unreadable. I'm suspicious.",
+    ],
+    "spicy_under": [
+        "You said {claim}, you delivered {perf}. {gap} points of sandbagging, {player}. Stone cold. Own it.",
+        "{player} dialed {claim}, then took that question like a seasoned diplomat. Why lowball?",
+        "Claimed {claim}, scored {perf}. {player}, the camera believes in your poker face more than you do.",
+        "Only {smile} percent smile from a self-declared {claim}? {player}, go negotiate something.",
+    ],
+    "delulu_under": [
+        "{player} claimed {claim}, then gave the camera absolutely nothing. {perf}. Reverse delulu. Are you okay?",
+        "{gap} points in the wrong direction. {player}, you're a card shark pretending to be a goldfish.",
+        "{claim}? {smile} percent smile. {player}, stop sandbagging. The camera sees everything.",
+        "{player} dialed {claim} and scored {perf}. Either deep humility or a hustle. I'm leaning hustle.",
+    ],
+    "void": [
+        "That round didn't count, {player}. Reset and try again.",
+        "{player}, that window didn't count. Face the camera and go again.",
+        "No verdict this time, {player}. Reset and keep a straight face for real.",
+        "That one's void, {player}. I'll allow a second interview.",
+    ],
+}
+
+# Straight Face Under Pressure (The Tell's Round 3, id 6). Claim = how long they
+# can keep a neutral face under rapid-fire questions (dial 100 = STRAIGHT_MAX_S);
+# perf = seconds held on the same scale. "over" = cracked sooner than claimed.
+STRAIGHT_TEMPLATES: dict[str, list[str]] = {
+    "validated": [
+        "{player} claimed {claimsecs} seconds, held {held}. Straight face, straight answer. Validated.",
+        "Claim {claim}, reality {perf}. {player}, you know exactly when you crack. Unsettling.",
+        "{held} seconds, as advertised. {player}, you even crack on schedule. Validated.",
+        "{player} dialed {claim}, delivered {perf}. No follow-up questions. Validated.",
+        "Held {held} seconds, just like {player} said. Nobody likes a self-aware person, but fine.",
+    ],
+    "mild_over": [
+        "{player} promised {claimsecs} seconds and lasted {held}. Close. Your face blinked first.",
+        "Claimed {claim}, held a {perf}. {player}, composed-ish. The ish is doing overtime.",
+        "{held} seconds from a claimed {claimsecs}. Close, {player}. The camera caught the flinch.",
+        "{gap} points over, {player}. The questions found a crack. A small one.",
+    ],
+    "spicy_over": [
+        "{player} claimed {claimsecs} seconds. Your face gave up after {held}. Interesting answer.",
+        "{held} seconds, {player}? You promised {claimsecs}. One hard question and there it was.",
+        "Claimed {claim}, delivered {perf}. {player}, your tell showed up early and stayed.",
+        "{gap} points over, {player}. Your face resigned before the questions got difficult.",
+    ],
+    "delulu_over": [
+        "{claimsecs} seconds? You lasted {held}. {player}, that's not composure, that's a rumour about composure.",
+        "{player} claimed {claimsecs} seconds and cracked in {held}. We'll keep your application on file.",
+        "{gap} points of pure fiction, {player}. Your face folded on the first question. Delulu.",
+        "Claimed {claim}, scored {perf}. {player}, your straight face has the shelf life of milk.",
+    ],
+    "mild_under": [
+        "{player} claimed only {claimsecs} seconds and held {held}. Tougher than you think.",
+        "{gap} points under, {player}. The questions bounced right off. Why so modest?",
+        "Held {held} seconds from a claimed {claimsecs}. {player}, give your composure some credit.",
+        "Claimed {claim}, held a {perf}. {player}, modest and unbothered. I'm suspicious.",
+    ],
+    "spicy_under": [
+        "You said {claimsecs} seconds, you held {held}. {gap} points of sandbagging, {player}. Own it.",
+        "{player} dialed {claim}, then sat through every question like a diplomat. Why lowball?",
+        "Claimed {claim}, scored {perf}. {player}, the camera rates your composure higher than you do.",
+        "{held} seconds of nothing from a self-declared {claimsecs}? {player}, you'd survive a press conference.",
+    ],
+    "delulu_under": [
+        "{player} claimed {claimsecs} seconds, then held {held}. Reverse delulu. What else are you hiding?",
+        "{gap} points in the wrong direction. {player}, stone-faced and pretending otherwise.",
+        "{player} dialed {claim} and scored {perf}. Either deep humility or a hustle. I'm leaning hustle.",
+        "{held} seconds of absolutely nothing. {player}, you claimed {claimsecs}. The camera sees you.",
+    ],
+    "void": [
+        "That round didn't count, {player}. Reset and try again.",
+        "{player}, that window didn't count. Face the camera and go again.",
+        "No verdict this time, {player}. Reset and hold that straight face for real.",
+        "That one's void, {player}. I'll allow a second interview.",
+    ],
+}
+
 # round_id -> templates. Unknown round types fall back to the Round 1 set.
 ROUND_TEMPLATES: dict[int, dict[str, list[str]]] = {
     1: TEMPLATES,
     2: STEADY_TEMPLATES,
+    5: POKER_TEMPLATES,
+    6: STRAIGHT_TEMPLATES,
 }
 
 # Placeholders that need the raw reading; lines using them are skipped when it is missing.
-_RAW_PLACEHOLDERS = ("{ms}", "{mg}", "{peak}")
+_RAW_PLACEHOLDERS = ("{ms}", "{mg}", "{peak}", "{smile}", "{secs}", "{held}", "{claimsecs}")
 
 
 def templates_for(round_id: int) -> dict[str, list[str]]:
@@ -242,10 +367,15 @@ def build_verdict_text(result: RoundResult, player: str, rng: Optional[random.Ra
     rng = rng or random
     templates = templates_for(result.round_id)
     options = templates.get(template_key(result)) or templates.get("void") or TEMPLATES["void"]
+    first_smile_ms = result.extra.get("first_smile_ms") if result.extra else None
     raw = {
         "ms": result.actual_ms,
         "mg": result.actual if result.unit == "mg_rms" else None,
         "peak": result.extra.get("peak") if result.extra else None,
+        "smile": result.actual if result.unit == "smile_pct" else None,
+        "secs": first_smile_ms / 1000.0 if result.unit == "smile_pct" and first_smile_ms is not None else None,
+        "held": result.actual if result.unit == "s" else None,
+        "claimsecs": result.extra.get("claim_s") if result.unit == "s" and result.extra else None,
     }
     # never say "unknown milliseconds" (or milli-g) out loud
     usable = [t for t in options if not _needs_missing_value(t, raw)] or [TEMPLATES["void"][0]]
@@ -263,69 +393,67 @@ def build_verdict_text(result: RoundResult, player: str, rng: Optional[random.Ra
         ms=_fmt(raw["ms"]),
         mg=_fmt(raw["mg"]),
         peak=_fmt(raw["peak"]),
+        smile=_fmt(raw["smile"]),
+        secs=_fmt(raw["secs"]),
+        held=_fmt(raw["held"]),
+        claimsecs=_fmt(raw["claimsecs"]),
     )
 
 
 # ---------------------------------------------------------------------------
-# Pre-recorded fallback lines (played when TTS is down or too slow, so they
-# carry no names and no numbers). Generate the mp3s before a demo with
-#     python pi/make_fallbacks.py --dry-run     # then without --dry-run
-# Key: (round_id, tier). round_id None = round-neutral file, tier None = the
-# generic file. fallback_path() turns a key into the file name the app plays.
-# Tier lines must fit both directions (the file is picked by tier only).
+# The face rounds' stimulus: interview questions (not verdicts, so no word
+# limit, but short). Clips, when a machine has them, are
+#   assets/questions/poker_XX.mp3     Poker Face: one per window, it has 6 s
+#   assets/questions/pressure_XX.mp3  Straight Face: rapid fire, back to back
+# Party-safe: pressure, not cruelty; never about appearance or identity.
 # ---------------------------------------------------------------------------
-FALLBACK_LINES: dict[tuple[Optional[int], Optional[str]], str] = {
-    (None, None): "The verdict is in, and it's on the screen. Read it and weep, or gloat.",
-    (None, "validated"): "Validated. Your confidence and your performance actually agree. Annoyingly self-aware.",
-    (None, "mild"): "A little off. Close enough to be proud, far enough to be humbled.",
-    (None, "spicy"): "Spicy. Your confidence and reality just had a very public disagreement.",
-    (None, "delulu"): "Certified delulu. Your confidence and reality are not on speaking terms.",
-    (None, "false_start"): "False start! Confidence so high it time-travelled. No points this round.",
-    (None, "timeout"): "Timeout. We waited, and waited, and waited. No points this round.",
-    (2, "validated"): "Validated. Steady as a surgeon, and honest about it.",
-    (2, "mild"): "Close, but not quite. Your hands and your ego almost agree.",
-    (2, "spicy"): "Spicy. Your hands and your confidence told very different stories.",
-    (2, "delulu"): "Certified delulu. Your hands and your self-image live in different universes.",
-}
+POKER_QUESTION_LINES: list[str] = [
+    "So. Why should we hire you, and not literally anyone else?",
+    "What was your biggest failure? Take your time. We're recording.",
+    "Your last manager described you as 'a lot'. What do you think they meant?",
+    "Where do you see yourself in five years? Be honest. Is it here?",
+    "What's your greatest weakness? And please don't say perfectionism.",
+    "Your references didn't call us back. Any idea why?",
+    "On a scale of one to ten, how much of your resume is actually true?",
+    "When were you last wrong about something? A recent one, please.",
+    "We found your old social media posts. Would you like to explain first?",
+    "Why did you leave your last job? The real reason.",
+]
 
-# Tiers each round can produce (and so needs a fallback for).
-_FAILED_TIERS = {1: ("false_start", "timeout")}
+PRESSURE_QUESTION_LINES: list[str] = [
+    "Name your worst habit.",
+    "Quick. Biggest lie you told this week?",
+    "Who in this room do you trust least?",
+    "Last thing you searched online?",
+    "Are you smarter than your friends? Yes or no.",
+    "Salary expectation? Lower.",
+    "What would your ex say about you?",
+    "When did you last cry?",
+    "Is this really your best effort?",
+    "Are you smiling? Why are you smiling?",
+    "Describe yourself in one word. Not that one.",
+    "Who's the favourite child in your family?",
+    "What are you hiding right now?",
+    "Did you lie on your application?",
+    "Which friend would you leave behind?",
+    "Is that your final answer?",
+    "Most embarrassing app on your phone?",
+    "Say something nice about yourself. Go.",
+]
 
-
-def round_tiers(round_id: int) -> list[str]:
-    return [name for _, name in config.GAP_TIERS] + list(_FAILED_TIERS.get(round_id, ()))
-
-
-def fallback_path(tier: Optional[str], round_id: Optional[int] = None) -> Path:
-    """File name for a fallback: generic (tier None), per tier, or per round and tier."""
-    if tier is None:
-        return config.FALLBACK_AUDIO
-    if round_id is None:
-        return config.ASSETS_DIR / f"fallback_{tier}.mp3"
-    return config.ASSETS_DIR / f"fallback_round{round_id}_{tier}.mp3"
-
-
-def fallback_candidates(tier: str, round_id: Optional[int] = None) -> list[Path]:
-    """Where fallback_audio_for() looks, in order."""
-    candidates = [fallback_path(tier), fallback_path(None)]
-    if round_id is not None:
-        candidates.insert(0, fallback_path(tier, round_id))
-    return candidates
+QUESTION_SETS: dict[str, list[str]] = {"poker": POKER_QUESTION_LINES, "pressure": PRESSURE_QUESTION_LINES}
 
 
-def fallback_plan(round_id: Optional[int] = None) -> list[tuple[Path, str]]:
-    """(file, text) for every fallback line, in FALLBACK_LINES order.
+def question_path(kind: str, number: int) -> Path:
+    """assets/questions/poker_01.mp3 for ("poker", 1), and so on."""
+    return config.QUESTIONS_DIR / f"{kind}_{number:02d}.mp3"
 
-    With round_id, only the files that round can ever play (its own files, the
-    round-neutral files for its tiers and the generic one).
-    """
-    keys = list(FALLBACK_LINES)
-    if round_id is not None:
-        playable = {(None, None)}
-        for tier in round_tiers(round_id):
-            playable |= {(None, tier), (round_id, tier)}
-        keys = [k for k in keys if k in playable]
-    return [(fallback_path(tier, rid), FALLBACK_LINES[(rid, tier)]) for rid, tier in keys]
+
+def question_plan(kind: Optional[str] = None) -> list[tuple[Path, str]]:
+    """(file, text) for every question clip (both sets, or one kind), in list order."""
+    kinds = [kind] if kind else list(QUESTION_SETS)
+    return [(question_path(k, i), text) for k in kinds
+            for i, text in enumerate(QUESTION_SETS[k], start=1)]
 
 
 # ---------------------------------------------------------------------------
@@ -469,57 +597,55 @@ def play_audio(path: Path) -> bool:
         return False
 
 
-def fallback_audio_for(tier: str, round_id: Optional[int] = None) -> Optional[Path]:
-    for candidate in fallback_candidates(tier, round_id):
-        if candidate.is_file():
-            return candidate
-    return None
-
-
 # ---------------------------------------------------------------------------
 # One-call entry point
 # ---------------------------------------------------------------------------
 @dataclass
 class Verdict:
     text: str
-    source: str               # "elevenlabs" | "fallback_audio" | "text_only"
+    source: str               # "elevenlabs" | "unavailable"
     audio_path: Optional[Path]
-    reason: Optional[str]     # why we fell back, if we did
+    reason: Optional[str]     # why TTS failed, if it did
     elapsed_s: float
+    error: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        # `error` is the same failure string as `reason` (None when TTS worked).
+        if self.error is None:
+            self.error = self.reason
+        elif self.reason is None:
+            self.reason = self.error
 
 
 def deliver_verdict(result: RoundResult, player: str, play: bool = True,
                     memory: Optional[LastLineMemory] = None,
                     on_text: Optional[Callable[[str], None]] = None) -> Verdict:
-    """Print the verdict, then speak it (ElevenLabs, else fallback audio, else text only).
+    """Print the verdict, then speak it with ElevenLabs.
 
-    memory defaults to SESSION_LINES, so a player doesn't hear the same line twice in a row.
-    on_text (optional, e.g. the browser UI) gets the line before any TTS or audio;
-    an error in it is reported and ignored.
+    A missing key, timeout, HTTP error, empty audio, or mp3 write error does
+    not play a file and does not look in assets/. The returned Verdict has
+    source "unavailable" and error/reason set. This function does not raise
+    on those failures. memory defaults to SESSION_LINES, so a player doesn't
+    hear the same line twice in a row. on_text (optional, e.g. the browser UI)
+    gets the line before any TTS; an error in it is reported and ignored.
     """
     text = build_verdict_text(result, player, memory=SESSION_LINES if memory is None else memory)
     print(f'   NARRATOR: "{text}"')
+    t0 = time.monotonic()
+    out = config.TTS_OUTPUT_DIR / f"verdict_{datetime.now():%Y%m%d_%H%M%S_%f}.mp3"
+    try:
+        path = synthesize(text, out)
+    except TTSError as exc:
+        elapsed = time.monotonic() - t0
+        reason = str(exc)
+        print(f"   [error] TTS unavailable ({reason})", file=sys.stderr)
+        return Verdict(text, "unavailable", None, reason, elapsed)
+    elapsed = time.monotonic() - t0
     if on_text is not None:
         try:
             on_text(text)
         except Exception as exc:  # noqa: BLE001 - a display hook must never cost the verdict
             print(f"   [warn] verdict text hook failed: {exc}", file=sys.stderr)
-    t0 = time.monotonic()
-    out = config.TTS_OUTPUT_DIR / f"verdict_{datetime.now():%Y%m%d_%H%M%S_%f}.mp3"
-    try:
-        path = synthesize(text, out)
-        elapsed = time.monotonic() - t0
-        if play:
-            play_audio(path)
-        return Verdict(text, "elevenlabs", path, None, elapsed)
-    except TTSError as exc:
-        reason = str(exc)
-    elapsed = time.monotonic() - t0
-    fallback = fallback_audio_for(result.tier, result.round_id)
-    if fallback is not None:
-        print(f"   [fallback] TTS unavailable ({reason}); playing {fallback.name}")
-        if play:
-            play_audio(fallback)
-        return Verdict(text, "fallback_audio", fallback, reason, elapsed)
-    print(f"   [fallback] TTS unavailable ({reason}); no fallback audio in assets/, text only")
-    return Verdict(text, "text_only", None, reason, elapsed)
+    if play:
+        play_audio(path)
+    return Verdict(text, "elevenlabs", path, None, elapsed)

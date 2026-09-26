@@ -1,6 +1,6 @@
 """Narrator: verdict line rules (word limit, variety, placeholders), the
-no-repeat memory, the fallback lines, and delivery when TTS fails or is slow.
-No network: requests.post is faked everywhere."""
+no-repeat memory, and delivery when TTS fails or is slow.
+No network: requests.post is faked everywhere. TTS failure never plays audio."""
 import re
 import string
 import time
@@ -10,14 +10,17 @@ import requests
 
 import config
 import elevenlabs_client as ec
-from scoring import score_reflex_round, score_steady_round
+from scoring import score_poker_round, score_reflex_round, score_steady_round
 
 LONG_NAME = "Maximilian"            # 10 characters
 assert len(LONG_NAME) == 10
 # Longest realistic values: claim/perf/gap top out at 100, readings as 3 digits.
-LONGEST_VALUES = dict(player=LONG_NAME, claim=100, perf=100, gap=100, ms=999, mg=999, peak=999)
-PLACEHOLDERS = {"player", "claim", "perf", "gap", "ms", "mg", "peak"}
-TEMPLATE_SETS = {1: ec.TEMPLATES, 2: ec.STEADY_TEMPLATES}
+LONGEST_VALUES = dict(player=LONG_NAME, claim=100, perf=100, gap=100, ms=999, mg=999, peak=999,
+                      smile=100, secs=999, held=999, claimsecs=999)
+PLACEHOLDERS = {"player", "claim", "perf", "gap", "ms", "mg", "peak", "smile", "secs", "held", "claimsecs"}
+# Raw-reading placeholders each round may use (the shared ones are always allowed).
+ROUND_PLACEHOLDERS = {1: {"ms"}, 2: {"mg", "peak"}, 5: {"smile", "secs"}, 6: {"held", "claimsecs"}}
+TEMPLATE_SETS = {1: ec.TEMPLATES, 2: ec.STEADY_TEMPLATES, 5: ec.POKER_TEMPLATES, 6: ec.STRAIGHT_TEMPLATES}
 ALL_LINES = [(rid, key, line) for rid, t in TEMPLATE_SETS.items()
              for key, lines in t.items() for line in lines]
 SCORED_KEYS = ["validated"] + [f"{t}_{d}" for t in ("mild", "spicy", "delulu") for d in ("over", "under")]
@@ -44,15 +47,13 @@ def test_word_limit_is_18():
 def test_every_line_uses_only_known_placeholders(round_id, key, line):
     names = {f for _, f, _, _ in string.Formatter().parse(line) if f is not None}
     assert names <= PLACEHOLDERS, line
-    if round_id == 2:
-        assert "ms" not in names, line
-    else:
-        assert not names & {"mg", "peak"}, line
+    raw = PLACEHOLDERS - {"player", "claim", "perf", "gap"}
+    assert not names & (raw - ROUND_PLACEHOLDERS[round_id]), line     # only this round's readings
     if key in ("false_start", "timeout", "void"):
-        assert not names & {"ms", "mg", "peak", "perf", "gap"}, line   # nothing was measured
+        assert not names & (raw | {"perf", "gap"}), line                 # nothing was measured
 
 
-@pytest.mark.parametrize("round_id", [1, 2])
+@pytest.mark.parametrize("round_id", [1, 2, 5, 6])
 def test_every_key_has_at_least_4_distinct_lines(round_id):
     templates = TEMPLATE_SETS[round_id]
     expected = SCORED_KEYS + ["void"] + (["false_start", "timeout"] if round_id == 1 else [])
@@ -62,9 +63,11 @@ def test_every_key_has_at_least_4_distinct_lines(round_id):
         assert len(set(lines)) == len(lines), key
 
 
-def test_no_round_3_content():
-    assert set(ec.ROUND_TEMPLATES) == {1, 2}
-    assert all(rid in (None, 1, 2) for rid, _ in ec.FALLBACK_LINES)
+def test_no_round_id_3_content():
+    # Internal round id 3 (the parked Retreat idea) has no templates or name.
+    # The Tell's "Round 3" is Straight Face, internal id 6.
+    assert set(ec.ROUND_TEMPLATES) == {1, 2, 5, 6}
+    assert 3 not in config.ROUND_NAMES
 
 
 def test_first_void_line_is_the_safe_last_resort():
@@ -119,50 +122,21 @@ def test_deliver_verdict_uses_the_session_memory(monkeypatch, tmp_path):
     ec.SESSION_LINES.clear()
 
 
-# ------------------------------------------------------------------ fallback lines
-EXPECTED_FALLBACK_FILES = {
+# ------------------------------------------------------------------ delivery when TTS fails
+# Present on disk during failure tests so a reintroduced lookup would be audible.
+_IGNORED_FALLBACK_FILES = (
     "fallback_verdict.mp3",
     "fallback_validated.mp3", "fallback_mild.mp3", "fallback_spicy.mp3", "fallback_delulu.mp3",
     "fallback_false_start.mp3", "fallback_timeout.mp3",
     "fallback_round2_validated.mp3", "fallback_round2_mild.mp3",
     "fallback_round2_spicy.mp3", "fallback_round2_delulu.mp3",
-}
-NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-                "ten", "hundred", "percent", "millisecond", "milli-g")
+    "fallback_round5_validated.mp3", "fallback_round5_mild.mp3",
+    "fallback_round5_spicy.mp3", "fallback_round5_delulu.mp3",
+    "fallback_round6_validated.mp3", "fallback_round6_mild.mp3",
+    "fallback_round6_spicy.mp3", "fallback_round6_delulu.mp3",
+)
 
 
-def test_fallback_files_match_what_the_app_looks_for():
-    names = {path.name for path, _ in ec.fallback_plan()}
-    assert names == EXPECTED_FALLBACK_FILES
-    assert config.FALLBACK_AUDIO.name in names
-    # every tier a round can produce has a file of its own in the chain before the generic one
-    for rid in (1, 2):
-        for tier in ec.round_tiers(rid):
-            chain = [p.name for p in ec.fallback_candidates(tier, rid)[:-1]]
-            assert set(chain) & names, (rid, tier)
-
-
-@pytest.mark.parametrize("key,text", list(ec.FALLBACK_LINES.items()))
-def test_fallback_lines_are_name_and_number_free_and_short(key, text):
-    assert not re.search(r"\d", text), text
-    assert "{" not in text and "}" not in text, text
-    words = set(re.findall(r"[a-z-]+", text.lower()))
-    assert not words & set(NUMBER_WORDS), text
-    assert ec.word_count(text) <= ec.MAX_VERDICT_WORDS, text
-    if key[0] == 2 or key[1] in ("validated", "mild", "spicy", "delulu", None):
-        # tier files are picked by tier only, so they must not assume a direction
-        assert not re.search(r"\b(over|under)\s?confident|sandbag", text.lower()), text
-
-
-def test_fallback_plan_per_round():
-    r1 = {p.name for p, _ in ec.fallback_plan(1)}
-    r2 = {p.name for p, _ in ec.fallback_plan(2)}
-    assert "fallback_false_start.mp3" in r1 and "fallback_round2_delulu.mp3" not in r1
-    assert "fallback_false_start.mp3" not in r2 and "fallback_round2_delulu.mp3" in r2
-    assert "fallback_verdict.mp3" in r1 & r2
-
-
-# ------------------------------------------------------------------ delivery when TTS fails
 class _FakeResponse:
     def __init__(self, chunks, status_code=200, text=""):
         self.status_code = status_code
@@ -203,14 +177,20 @@ def live(monkeypatch, tmp_path):
     ec.SESSION_LINES.clear()
 
 
-def _make(assets, *names):
-    for n in names:
-        (assets / n).write_bytes(b"ID3")
+def _plant_fallbacks(assets):
+    for name in _IGNORED_FALLBACK_FILES:
+        (assets / name).write_bytes(b"ID3")
 
 
-def test_budget_overrun_plays_round_2_tier_fallback_and_prints_text(live, monkeypatch, capsys):
+def _assert_unavailable(v, played, needle):
+    assert v.source == "unavailable"
+    assert v.audio_path is None and played == []
+    assert v.error and needle in v.error and v.error == v.reason
+
+
+def test_budget_overrun_plays_nothing_and_prints_text(live, monkeypatch, capsys):
     assets, played = live
-    _make(assets, "fallback_round2_delulu.mp3", "fallback_delulu.mp3", "fallback_verdict.mp3")
+    _plant_fallbacks(assets)
     monkeypatch.setattr(config, "ELEVENLABS_TIMEOUT_S", 0.3)
 
     def slow_post(url, **kw):
@@ -221,75 +201,79 @@ def test_budget_overrun_plays_round_2_tier_fallback_and_prints_text(live, monkey
     t0 = time.monotonic()
     v = ec.deliver_verdict(score_steady_round(100, 62.0), "Saim", play=True)
     assert time.monotonic() - t0 < 1.0
-    assert v.source == "fallback_audio" and "budget" in v.reason
-    assert v.audio_path.name == "fallback_round2_delulu.mp3"
-    assert played == [v.audio_path]
-    out = capsys.readouterr().out
-    assert f'NARRATOR: "{v.text}"' in out
-    assert "[fallback]" in out and "fallback_round2_delulu.mp3" in out
+    _assert_unavailable(v, played, "budget")
+    captured = capsys.readouterr()
+    assert f'NARRATOR: "{v.text}"' in captured.out
+    assert "[fallback]" not in captured.out and "fallback_" not in captured.out
+    assert "TTS unavailable" in captured.err and "budget" in captured.err
 
 
-def test_http_error_in_round_1_uses_round_neutral_tier_file(live, monkeypatch, capsys):
+def test_http_error_plays_nothing(live, monkeypatch, capsys):
     assets, played = live
-    _make(assets, "fallback_round2_spicy.mp3", "fallback_spicy.mp3", "fallback_verdict.mp3")
+    _plant_fallbacks(assets)
     monkeypatch.setattr(ec.requests, "post", lambda url, **kw: _FakeResponse([], 503, "busy"))
     v = ec.deliver_verdict(score_reflex_round(85, 375), "Saim", play=True)   # spicy_over
-    assert v.source == "fallback_audio" and "HTTP 503" in v.reason
-    assert v.audio_path.name == "fallback_spicy.mp3" and played == [v.audio_path]
-    assert f'NARRATOR: "{v.text}"' in capsys.readouterr().out
+    _assert_unavailable(v, played, "HTTP 503")
+    captured = capsys.readouterr()
+    assert f'NARRATOR: "{v.text}"' in captured.out
+    assert "fallback_" not in captured.out and "HTTP 503" in captured.err
 
 
 # Results are built inside the test: the Round 2 thresholds are pinned by an
 # autouse fixture, which isn't active yet when parametrize arguments are evaluated.
-@pytest.mark.parametrize("make_result,expected", [
-    (lambda: score_reflex_round(90, None, false_start=True), "fallback_false_start.mp3"),
-    (lambda: score_reflex_round(90, None, timeout=True), "fallback_timeout.mp3"),
-    (lambda: score_steady_round(80, 22.4), "fallback_round2_validated.mp3"),     # perf 80
-    (lambda: score_reflex_round(52, 375), "fallback_validated.mp3"),             # perf 50
-    (lambda: score_reflex_round(35, 375), "fallback_mild.mp3"),                  # gap 15, under
-    (lambda: score_steady_round(15, 44.0), "fallback_round2_spicy.mp3"),         # spicy, under
+@pytest.mark.parametrize("make_result", [
+    lambda: score_reflex_round(90, None, false_start=True),
+    lambda: score_reflex_round(90, None, timeout=True),
+    lambda: score_steady_round(80, 22.4),
+    lambda: score_reflex_round(52, 375),
+    lambda: score_reflex_round(35, 375),
+    lambda: score_steady_round(15, 44.0),
+    lambda: score_poker_round(100, 0.40),
+    lambda: score_poker_round(45, 0.25),
 ])
-def test_network_failure_picks_the_right_file_for_every_generated_name(live, monkeypatch,
-                                                                        make_result, expected):
+def test_network_failure_never_plays_a_fallback_file(live, monkeypatch, make_result):
     assets, played = live
-    result = make_result()
-    _make(assets, *EXPECTED_FALLBACK_FILES)
+    _plant_fallbacks(assets)
 
     def boom(url, **kw):
         raise requests.ConnectionError("no route")
 
     monkeypatch.setattr(ec.requests, "post", boom)
-    v = ec.deliver_verdict(result, "Saim", play=True)
-    assert v.source == "fallback_audio" and v.audio_path.name == expected
-    assert played == [v.audio_path]
+    v = ec.deliver_verdict(make_result(), "Saim", play=True)
+    _assert_unavailable(v, played, "ConnectionError")
 
 
-def test_missing_tier_file_falls_back_to_generic(live, monkeypatch):
+def test_http_500_ignores_a_generic_fallback_file(live, monkeypatch):
     assets, played = live
-    _make(assets, "fallback_verdict.mp3")
+    _plant_fallbacks(assets)
     monkeypatch.setattr(ec.requests, "post", lambda url, **kw: _FakeResponse([], 500))
     v = ec.deliver_verdict(score_steady_round(100, 62.0), "Saim", play=True)
-    assert v.audio_path.name == "fallback_verdict.mp3" and played == [v.audio_path]
+    _assert_unavailable(v, played, "HTTP 500")
 
 
-def test_no_audio_at_all_still_prints_the_verdict(live, monkeypatch, capsys):
-    _, played = live
+def test_empty_audio_prints_the_verdict_and_plays_nothing(live, monkeypatch, capsys):
+    assets, played = live
+    _plant_fallbacks(assets)
     monkeypatch.setattr(ec.requests, "post", lambda url, **kw: _FakeResponse([b""]))
     v = ec.deliver_verdict(score_reflex_round(95, 500), "Saim", play=True)
-    assert v.source == "text_only" and v.audio_path is None and played == []
-    out = capsys.readouterr().out
-    assert f'NARRATOR: "{v.text}"' in out and "text only" in out
+    _assert_unavailable(v, played, "empty audio")
+    captured = capsys.readouterr()
+    assert f'NARRATOR: "{v.text}"' in captured.out
+    assert "[fallback]" not in captured.out and "text only" not in captured.out
+    assert "empty audio" in captured.err
 
 
 def test_success_prints_text_and_plays_the_synthesized_file(live, monkeypatch, capsys):
     assets, played = live
-    _make(assets, *EXPECTED_FALLBACK_FILES)
+    _plant_fallbacks(assets)
     monkeypatch.setattr(ec.requests, "post", lambda url, **kw: _FakeResponse([b"ID3", b"audio"]))
     v = ec.deliver_verdict(score_reflex_round(95, 500), "Saim", play=True)
-    assert v.source == "elevenlabs" and v.reason is None
+    assert v.source == "elevenlabs" and v.reason is None and v.error is None
     assert played == [v.audio_path] and v.audio_path.read_bytes() == b"ID3audio"
+    assert v.audio_path.parent == config.TTS_OUTPUT_DIR
+    assert v.audio_path.name not in _IGNORED_FALLBACK_FILES
     out = capsys.readouterr().out
-    assert f'NARRATOR: "{v.text}"' in out and "[fallback]" not in out
+    assert f'NARRATOR: "{v.text}"' in out and "[fallback]" not in out and "[error]" not in out
 
 
 def test_verdict_text_is_printed_before_synthesis_starts(live, monkeypatch, capsys):

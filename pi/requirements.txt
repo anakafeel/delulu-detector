@@ -2,3 +2,6 @@ pyserial>=3.5
 requests>=2.31
 python-dotenv>=1.0
 pytest>=8.0
+# Round 5 (Poker Face) only; imported lazily, Rounds 1-2 run without it.
+# Must stay below 5: opencv-python 5.x removed cv2.CascadeClassifier (the Haar cascades).
+opencv-python>=4.8,<5

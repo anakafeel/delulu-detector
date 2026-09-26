@@ -5,8 +5,17 @@ import ActiveRound from './components/ActiveRound'
 import RevealMoment from './components/RevealMoment'
 import Leaderboard from './components/Leaderboard'
 import CalibrationCurve from './components/CalibrationCurve'
+import ClaimAnnouncer from './components/ClaimAnnouncer'
 
-const CONNECTION_LABEL = { live: 'Live', mock: 'Mock', offline: 'Offline' }
+const CONNECTION_LABEL = { live: 'Live', offline: 'Offline', preview: 'Preview' }
+
+function PreviewKeys() {
+  return (
+    <p className="pointer-events-none absolute left-4 top-4 z-30 font-game text-[10px] uppercase tracking-[0.2em] text-ink-dim">
+      Preview, no hardware. Keys 1 idle, 2 dial, 3 measure, 4 reveal, 0 auto.
+    </p>
+  )
+}
 
 function Stage({ state }) {
   switch (state.screen) {
@@ -18,6 +27,7 @@ function Stage({ state }) {
           activeRound={state.activeRound}
           player={state.player}
           liveClaim={state.liveClaim}
+          camera={state.camera}
         />
       )
     case 'reveal':
@@ -30,6 +40,26 @@ function Stage({ state }) {
 
 export default function App() {
   const state = useGameState()
+  const cameraFull =
+    (state.screen === 'predicting' || state.screen === 'performing') &&
+    state.activeRound?.uses_camera === true
+
+  if (cameraFull) {
+    return (
+      <div className="fixed inset-0 z-20 flex items-center justify-center bg-void p-8">
+        <div className="relative h-[82vh] w-[82vw] overflow-hidden rounded-2xl border border-ink-faint/30 bg-black">
+          <Stage state={state} />
+        </div>
+        <ClaimAnnouncer screen={state.screen} liveClaim={state.liveClaim} />
+        {state.preview && <PreviewKeys />}
+        {state.notice && (
+          <p className="anim-fade-in absolute inset-x-6 bottom-16 z-30 rounded-md border border-critical/60 bg-surface px-4 py-2 text-center font-game text-sm text-critical">
+            {state.notice.message}
+          </p>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="relative flex h-screen flex-col bg-void p-5">
@@ -38,7 +68,7 @@ export default function App() {
 
       <header className="relative z-10 mb-5 flex items-center justify-between px-1">
         <span className="font-display text-lg tracking-widest text-ink">
-          DELULU<span className="text-claim">.</span>DETECTOR
+          THE<span className="text-claim">.</span>TELL
         </span>
         <span className="flex items-center gap-2 font-game text-xs uppercase tracking-[0.3em] text-ink-dim">
           <motion.span
@@ -47,6 +77,7 @@ export default function App() {
             transition={{ duration: 1.4, repeat: Infinity }}
           />
           {CONNECTION_LABEL[state.connection] ?? 'Connecting'}
+          {state.preview && <PreviewKeys />}
         </span>
       </header>
 
@@ -58,6 +89,7 @@ export default function App() {
           >
             <Stage state={state} />
           </div>
+          <ClaimAnnouncer screen={state.screen} liveClaim={state.liveClaim} />
           {state.notice && state.screen === 'predicting' && (
             <p className="anim-fade-in absolute inset-x-6 bottom-6 rounded-md border border-critical/60 bg-surface px-4 py-2 text-center font-game text-sm text-critical">
               {state.notice.message}
@@ -68,7 +100,7 @@ export default function App() {
         <aside className="flex flex-col gap-5 overflow-y-auto rounded-2xl border border-ink-faint/25 bg-surface/60 p-5">
           <Leaderboard history={state.history} />
           <div className="border-t border-ink-faint/20 pt-5">
-            <CalibrationCurve state={state} />
+            <CalibrationCurve player={state.player} history={state.history} />
           </div>
         </aside>
       </div>

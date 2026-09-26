@@ -1,7 +1,7 @@
 import { motion } from 'motion/react'
-import { ROUND_DEFS } from '../data/roundDefs'
+import { GAME_ROUNDS } from '../data/roundDefs'
 
-const MARQUEE_TEXT = ROUND_DEFS.map((r) => r.round_name.toUpperCase()).join('   ///   ')
+const MARQUEE_TEXT = GAME_ROUNDS.map((r) => `ROUND ${r.label}: ${r.round_name.toUpperCase()}`).join('   ///   ')
 
 export default function IdleScreen() {
   return (
@@ -10,7 +10,7 @@ export default function IdleScreen() {
       <Glow className="right-[10%] top-[55%] bg-reality" delay={2.4} />
 
       <p className="anim-fade-in-up font-game text-sm uppercase tracking-[0.5em] text-ink-dim">
-        Delulu Detector
+        The Tell
       </p>
 
       <h1 className="anim-fade-scale-in mt-4 text-center font-display text-6xl leading-tight text-ink [text-shadow:0_0_24px_var(--color-claim),0_0_60px_rgba(34,229,255,0.35)] md:text-7xl">
@@ -23,7 +23,7 @@ export default function IdleScreen() {
         className="anim-fade-in mt-8 flex items-center gap-3 font-game text-lg uppercase tracking-[0.3em] text-ink-dim"
         style={{ animationDelay: '0.4s' }}
       >
-        <span>predict yourself. we'll measure the rest.</span>
+        <span>call your composure. your face will fact-check you.</span>
         <motion.span
           className="inline-block h-5 w-3 bg-claim"
           animate={{ opacity: [1, 1, 0, 0] }}
