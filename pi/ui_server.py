@@ -15,7 +15,9 @@ GameState
 UIServer
     ThreadingHTTPServer in a daemon thread:
         GET /api/state    current state as JSON
-        GET /api/events   Server-Sent Events: the state again on every change
+        GET /api/events   Server-Sent Events: the full state again on every change,
+                          except a knob turn, which is a small `event: dial` with
+                          {"liveClaim": N} (the full state is ~100 KB with history)
         GET /api/health   {"ok": true}
         GET /...          frontend/dist (the `npm run build` output) if present,
                           so no Node is needed at the venue
@@ -186,9 +188,10 @@ class GameState:
 
     def __init__(self, clock: Callable[[], float] = time.monotonic,
                  reveal_hold_s: Optional[float] = None, idle_after_s: Optional[float] = None,
-                 history_limit: Optional[int] = None):
+                 history_limit: Optional[int] = None, reveal_min_s: Optional[float] = None):
         self._clock = clock
         self.reveal_hold_s = config.UI_REVEAL_HOLD_S if reveal_hold_s is None else reveal_hold_s
+        self.reveal_min_s = config.UI_REVEAL_MIN_S if reveal_min_s is None else reveal_min_s
         self.idle_after_s = config.UI_IDLE_AFTER_S if idle_after_s is None else idle_after_s
         self.history_limit = config.UI_HISTORY_LIMIT if history_limit is None else history_limit
         self._cond = threading.Condition()
@@ -204,6 +207,7 @@ class GameState:
         self.stage: Optional[str] = None   # last Arduino status state (locked, cue, hold, ...)
         self.active_round_id: Optional[int] = None
         self.live_claim: Optional[float] = None
+        self.dial_value: Optional[int] = None   # live knob position ({"type":"dial"}), newer sketches only
         self.latest_result: Optional[dict] = None
         self.history: list[dict] = []
         self.leaderboard: list[dict] = []
@@ -251,8 +255,25 @@ class GameState:
             self.stage = None
             self.active_round_id = round_id
             self.live_claim = None
+            self.dial_value = None             # a new round type: wait for the sketch to re-send it
             self._set_phase("idle")
             self._changed()
+
+    @_crash_safe
+    def serial_opened(self) -> None:
+        """The Pi (re)opened the serial port: whatever the board said before may be stale."""
+        with self._cond:
+            self._board_reset_locked("connecting")
+            self._changed()
+
+    def _board_reset_locked(self, stage: str) -> None:
+        # The sketch that answers next may be an older one without a live dial: show "?"
+        # until it sends a value, never the previous board's last position.
+        self.armed = False
+        self.stage = stage
+        self.dial_value = None
+        if self.phase != "reveal":
+            self._set_phase("idle")
 
     @_crash_safe
     def on_status(self, status: dict) -> None:
@@ -262,16 +283,14 @@ class GameState:
             if state == "mode":
                 rid = status.get("round_id")
                 self.armed = rid == self.selected_round or self.selected_round is None
+                self.dial_value = None         # the sketch re-sends it right after the ack (if it can)
                 if self.phase in ("idle", "predicting"):
                     self.active_round_id = self.selected_round
                     self.live_claim = None
                     self._set_phase("predicting")
             elif state == "ready":
                 if "accel" in status:          # boot banner: the board reset, selection is re-sent
-                    self.armed = False
-                    self.stage = "booting"
-                    if self.phase != "reveal":
-                        self._set_phase("idle")
+                    self._board_reset_locked("booting")
                     self._changed()
                     return
                 self.armed = True
@@ -284,7 +303,9 @@ class GameState:
                 self.armed = True
                 if self.phase != "performing":
                     self.active_round_id = self.selected_round
-                    self.live_claim = None
+                    # Newer sketches put the locked claim on "locked"; else the last dial position.
+                    claim = _int(status.get("claim")) if state == "locked" else None
+                    self.live_claim = claim if claim is not None else self.dial_value
                     self.notice = None
                     self._set_phase("performing")
             elif state == "error":
@@ -293,6 +314,43 @@ class GameState:
                 return
             self.stage = state
             self._changed()
+
+    @_crash_safe
+    def dial(self, value) -> None:
+        """The knob moved ({"type":"dial","value":N}, sent only while a claim is being set).
+
+        Shown as liveClaim on the "predicting" screen. Turning the knob also wakes the idle
+        screen, and ends the reveal once it has been up for reveal_min_s: someone is setting
+        the next claim. (The sketch re-sends an unchanged value after each round; that
+        doesn't count as turning.)
+
+        A turn that only moves the number doesn't bump `version`: the event stream sends
+        it as a small `event: dial` instead of the whole state (see next_event()).
+        """
+        v = _int(value)
+        if v is None:
+            return
+        v = max(0, min(100, v))
+        with self._cond:
+            if v == self.dial_value:
+                return
+            self.dial_value = v
+            before = self._effective_screen()
+            screen = before
+            structural = False
+            if (screen == "reveal" and self.armed
+                    and self._clock() - self.phase_since >= self.reveal_min_s):
+                screen = "predicting"
+            if self.armed and screen in ("idle", "predicting"):
+                if self.phase != "predicting":
+                    self.active_round_id = self.selected_round
+                    self.live_claim = None
+                    structural = True
+                self._set_phase("predicting")      # also restarts the idle timeout
+            if structural or self._effective_screen() != before:
+                self._changed()                    # a new screen: full state
+            else:
+                self._cond.notify_all()            # just the number: event stream sends `dial`
 
     @_crash_safe
     def claim_locked(self, round_id: int, claim: float) -> None:
@@ -385,14 +443,20 @@ class GameState:
         with self._cond:
             return self._snapshot_locked()
 
-    def _snapshot_locked(self) -> dict:
-        screen = self._effective_screen()
+    def _live_claim_for(self, screen: str):
+        if screen == "predicting":
+            return self.dial_value
+        return self.live_claim if screen in ("performing", "reveal") else None
+
+    def _snapshot_locked(self, screen: Optional[str] = None) -> dict:
+        if screen is None:
+            screen = self._effective_screen()
         show_round = screen in ("predicting", "performing")
         return {
             "screen": screen,
             "player": self.player,
             "activeRound": active_round(self.active_round_id) if show_round else None,
-            "liveClaim": self.live_claim if screen in ("performing", "reveal") else None,
+            "liveClaim": self._live_claim_for(screen),
             "latestResult": self.latest_result,
             "history": self.history,
             "leaderboard": self.leaderboard,
@@ -408,19 +472,38 @@ class GameState:
     def snapshot_json(self) -> str:
         return json.dumps(self.snapshot(), default=str, allow_nan=False)
 
-    def wait_for_change(self, last_json: Optional[str], timeout: float,
-                        stop: Optional[threading.Event] = None) -> Optional[str]:
-        """Block until the state JSON differs from last_json (or timeout / stop); return it or None."""
+    def next_event(self, cursor, timeout: float,
+                   stop: Optional[threading.Event] = None):
+        """Block until there is something new for one event-stream client.
+
+        cursor is what this client was last sent (None at first). Returns
+        (kind, data_json, new_cursor), or None on timeout / stop:
+          kind "state": the full snapshot (any real change: version bump or a new screen,
+                        including the time-based ones like the reveal hold ending)
+          kind "dial":  only liveClaim moved (the knob): {"liveClaim": N}, a few bytes
+                        instead of re-sending history and leaderboard 10 times a second
+        """
         deadline = time.monotonic() + timeout
         while True:
-            current = self.snapshot_json()
-            if current != last_json:
-                return current
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or (stop is not None and stop.is_set()):
-                return None
             with self._cond:
-                self._cond.wait(min(_SSE_POLL_S, remaining))
+                screen = self._effective_screen()
+                key = (self.version, screen)
+                claim = self._live_claim_for(screen)
+                if cursor is None or cursor[0] != key:
+                    snap = self._snapshot_locked(screen)
+                    kind = "state"
+                elif claim != cursor[1]:
+                    snap = {"liveClaim": claim}
+                    kind = "dial"
+                else:
+                    snap = None
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or (stop is not None and stop.is_set()):
+                        return None
+                    self._cond.wait(min(_SSE_POLL_S, remaining))
+            if snap is not None:
+                # history/leaderboard lists are replaced, never mutated, so this is safe unlocked
+                return kind, json.dumps(snap, default=str, allow_nan=False), (key, claim)
 
 
 # ---------------------------------------------------------------------------
@@ -503,17 +586,19 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.close_connection = True
         stop: threading.Event = self.server.stopping  # type: ignore[attr-defined]
-        last = None
+        cursor = None
         self.wfile.write(b"retry: 1500\n\n")
         while not stop.is_set():
-            current = self.state.wait_for_change(last, SSE_KEEPALIVE_S, stop)
-            if current is None:
+            event = self.state.next_event(cursor, SSE_KEEPALIVE_S, stop)
+            if event is None:
                 if stop.is_set():
                     break
                 self.wfile.write(b": keepalive\n\n")
             else:
-                last = current
-                self.wfile.write(b"data: " + current.encode() + b"\n\n")
+                kind, data, cursor = event
+                # Full state as a plain message (onmessage); knob turns as `event: dial`.
+                prefix = b"event: dial\n" if kind == "dial" else b""
+                self.wfile.write(prefix + b"data: " + data.encode() + b"\n\n")
             self.wfile.flush()
 
     def _static(self, path: str, head_only: bool) -> None:

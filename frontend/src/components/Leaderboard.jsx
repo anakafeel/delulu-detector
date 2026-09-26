@@ -1,7 +1,10 @@
+import { memo, useMemo } from 'react'
 import { leaderboardRows } from '../data/deriveStats'
 
-export default function Leaderboard({ history }) {
-  const rows = leaderboardRows(history)
+// memo: the live dial updates the app state up to 10 times a second; history
+// keeps the same reference then (dataSource.js), so the leaderboard is skipped.
+function Leaderboard({ history }) {
+  const rows = useMemo(() => leaderboardRows(history), [history])
   const totalRounds = history.length
 
   return (
@@ -49,3 +52,5 @@ export default function Leaderboard({ history }) {
     </div>
   )
 }
+
+export default memo(Leaderboard)

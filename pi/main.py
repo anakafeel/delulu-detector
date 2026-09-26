@@ -96,6 +96,21 @@ def parse_line(line: str) -> Optional[dict]:
     return msg
 
 
+def parse_dial(line: str) -> Optional[int]:
+    """{"type":"dial","value":N} (the knob, while a claim is being set) -> N clamped to 0-100, else None.
+
+    Only the browser UI uses it; everything else ignores these lines (parse_line and
+    parse_status return None for them).
+    """
+    msg = _load_json_object(line)
+    if msg is None or msg.get("type") != "dial":
+        return None
+    value = msg.get("value")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return int(max(0, min(100, round(value))))
+
+
 def parse_status(line: str) -> Optional[dict]:
     """Return the dict for {"type":"status",...} lines, None for anything else."""
     msg = _load_json_object(line)
@@ -215,7 +230,11 @@ class RoundSelector:
 # Input sources
 # ---------------------------------------------------------------------------
 def serial_lines(port: str, baud: int, round_id: int = ROUND_REFLEX,
-                 serial_module=None) -> Iterator[str]:
+                 serial_module=None, on_open: Optional[Callable[[], None]] = None) -> Iterator[str]:
+    """Lines from the Arduino, reopening the port after an error.
+
+    on_open (--ui): called each time the port is (re)opened, before any line is read.
+    """
     if serial_module is None:
         import serial as serial_module  # pyserial; imported lazily so --mock works without it
     serial = serial_module
@@ -226,6 +245,8 @@ def serial_lines(port: str, baud: int, round_id: int = ROUND_REFLEX,
                 print(f"Opened {port} @ {baud} baud; waiting {config.SERIAL_OPEN_SETTLE_S}s for the Uno to reset...")
                 time.sleep(config.SERIAL_OPEN_SETTLE_S)
                 ser.reset_input_buffer()
+                if on_open is not None:
+                    on_open()
                 selector = RoundSelector(round_id)
                 ser.write(selector.start())
                 print(f"Selected Round {round_id} ({config.ROUND_NAMES[round_id]}). "
@@ -247,26 +268,33 @@ def serial_lines(port: str, baud: int, round_id: int = ROUND_REFLEX,
 
 
 def mock_lines(rounds: int, seed: Optional[int], delay_s: float,
-               round_id: int = ROUND_REFLEX) -> Iterator[str]:
+               round_id: int = ROUND_REFLEX, dial_step_s: Optional[float] = None) -> Iterator[str]:
     """Emit Arduino-identical JSON lines. Simulates a player whose
     overconfidence shrinks round over round, with the odd false start
-    (Round 1) or accelerometer hiccup (Round 2)."""
+    (Round 1) or accelerometer hiccup (Round 2).
+
+    dial_step_s (used with --ui): also simulate the knob turning to each claim
+    ({"type":"dial"} lines, dial_step_s apart) and put the claim on "locked", like
+    the current sketch. None (the default) keeps the output exactly as before.
+    """
     accel = "LIS3DH@0x19" if round_id == ROUND_STEADY else "none"
     yield json.dumps({"type": "status", "state": "mode", "round_id": round_id, "accel": accel})
     if round_id == ROUND_STEADY:
-        yield from _mock_steady_lines(rounds, seed, delay_s)
+        yield from _mock_steady_lines(rounds, seed, delay_s, dial_step_s)
         return
     rng = random.Random(seed)
     true_ms = rng.gauss(290, 30)                    # this player's "real" speed
     overconfidence = rng.uniform(35, 55)            # starts very delulu
+    dial = _MockDial(dial_step_s)
     for seq in range(1, rounds + 1):
-        yield json.dumps({"type": "status", "state": "locked"})
         ms = max(120, int(rng.gauss(true_ms, 40)))
         perf_guess = max(0, min(100, (config.REFLEX_SLOW_MS - true_ms) /
                                 (config.REFLEX_SLOW_MS - config.REFLEX_FAST_MS) * 100))
         claim = int(max(0, min(100, perf_guess + overconfidence + rng.uniform(-5, 5))))
         overconfidence *= 0.55                      # feedback -> recalibration
         false_start = rng.random() < 0.15
+        yield from dial.turn_to(claim)
+        yield dial.locked(claim)
         msg = {"type": "result", "round_id": 1, "seq": seq, "claim": claim,
                "actual": None if false_start else ms, "unit": "ms",
                "false_start": false_start, "timeout": False}
@@ -275,21 +303,55 @@ def mock_lines(rounds: int, seed: Optional[int], delay_s: float,
         yield json.dumps({"type": "status", "state": "ready"})
 
 
-def _mock_steady_lines(rounds: int, seed: Optional[int], delay_s: float) -> Iterator[str]:
+class _MockDial:
+    """--mock --ui: the knob turning to each claim. Disabled (no lines) when step_s is None."""
+
+    STEPS = 8
+
+    def __init__(self, step_s: Optional[float], start: int = 50):
+        self.step_s = step_s
+        self.value = start
+
+    def turn_to(self, target: int) -> Iterator[str]:
+        if self.step_s is None:
+            return
+        start, last = self.value, None
+        for i in range(1, self.STEPS + 1):
+            v = round(start + (target - start) * i / self.STEPS)
+            if v == last:
+                continue
+            last = v
+            if self.step_s > 0:
+                time.sleep(self.step_s)
+            yield json.dumps({"type": "dial", "value": v})
+        self.value = target
+
+    def locked(self, claim: int) -> str:
+        msg = {"type": "status", "state": "locked"}
+        if self.step_s is not None:
+            msg["claim"] = claim
+        return json.dumps(msg)
+
+
+def _mock_steady_lines(rounds: int, seed: Optional[int], delay_s: float,
+                       dial_step_s: Optional[float] = None) -> Iterator[str]:
     rng = random.Random(seed)
     # A real hand measured about 68 mg RMS steady and far more when shaky (docs/calibration);
     # stay above STEADY_REST_MG so mock holds aren't rejected as 'set down on the table'.
     true_mg = rng.uniform(45, 250)                  # this player's real tremor, mg RMS
     overconfidence = rng.uniform(35, 55)
     full_window_samples = 500                       # 5 s at 100 Hz
+    dial = _MockDial(dial_step_s)
     for seq in range(1, rounds + 1):
-        for state in ("locked", "countdown", "hold"):
-            yield json.dumps({"type": "status", "state": state})
         mg = round(max(40.0, rng.gauss(true_mg, true_mg * 0.25)), 1)
         perf_guess = tremor_mg_to_performance(true_mg)
         claim = int(max(0, min(100, perf_guess + overconfidence + rng.uniform(-5, 5))))
         overconfidence *= 0.55
         hiccup = rng.random() < 0.1                 # I2C trouble -> error result, not scored
+        yield from dial.turn_to(claim)
+        yield dial.locked(claim)
+        for state in ("countdown", "hold"):
+            yield json.dumps({"type": "status", "state": state})
         msg = {"type": "result", "round_id": 2, "seq": seq, "claim": claim,
                "actual": None if hiccup else mg, "unit": "mg_rms",
                "peak": None if hiccup else round(mg * rng.uniform(2.5, 4.0), 1),
@@ -485,8 +547,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             print_leaderboard(log)
         return 0
 
-    source = (mock_lines(args.rounds, args.seed, args.mock_delay, args.round) if args.mock
-              else serial_lines(args.port, args.baud, args.round))
+    ui = None                                        # set by start_ui() below
+
+    def _on_serial_open() -> None:
+        # (Re)connected: the board may have been swapped or reflashed, so drop the old dial value.
+        if ui is not None:
+            ui.serial_opened()
+
+    # --mock --ui also simulates the knob turning (dial lines); plain --mock output is unchanged.
+    mock_extra = {"dial_step_s": config.UI_MOCK_DIAL_STEP_S} if (args.ui and not args.calibrate) else {}
+    source = (mock_lines(args.rounds, args.seed, args.mock_delay, args.round, **mock_extra) if args.mock
+              else serial_lines(args.port, args.baud, args.round, on_open=_on_serial_open))
 
     if args.calibrate and args.ui:
         print("   (--ui is not used with --calibrate; ignored)")
@@ -507,6 +578,11 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     try:
         for line in source:
+            dial = parse_dial(line)
+            if dial is not None:                     # live knob: UI only, never printed
+                if ui is not None:
+                    ui.dial(dial)
+                continue
             status = parse_status(line)
             if status is not None:
                 report_status(status, args.round)

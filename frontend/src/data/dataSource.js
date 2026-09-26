@@ -2,7 +2,9 @@
 // app talks to `subscribe`, never to fetch/mock details directly.
 //
 // Live (default): the Pi game loop (python pi/main.py --ui) serves its state.
-//   1. EventSource on /api/events (Server-Sent Events, pushed on every change)
+//   1. EventSource on /api/events (Server-Sent Events): the full state on every
+//      real change, plus small `dial` events ({"liveClaim": N}) while the knob
+//      turns, which are merged in without touching history/leaderboard
 //   2. while that is down, polling /api/state every second (EventSource keeps
 //      reconnecting in the background; polling stops once it is back)
 // Mock: open the app with ?mock=1, or build/run with VITE_USE_MOCK=1.
@@ -31,15 +33,48 @@ export function subscribe(callback) {
   return subscribeLive(callback)
 }
 
+// Keeps the previous converted value (same reference) when the raw JSON part
+// is unchanged, so memoized components (Leaderboard, CalibrationCurve) skip
+// re-rendering when only something else in the state changed.
+function sharedPart() {
+  let key = null
+  let value
+  return (raw, convert) => {
+    const nextKey = JSON.stringify(raw ?? null)
+    if (nextKey !== key) {
+      key = nextKey
+      value = convert()
+    }
+    return value
+  }
+}
+
 function subscribeLive(callback) {
   let closed = false
   let last = null
   let pollTimer = null
   let source = null
+  const history = sharedPart()
+  const leaderboard = sharedPart()
+  const latestResult = sharedPart()
 
   const deliver = (raw) => {
     if (closed) return
-    last = toUiState(raw)
+    const next = toUiState(raw)
+    last = {
+      ...next,
+      history: history(raw.history, () => next.history),
+      leaderboard: leaderboard(raw.leaderboard, () => next.leaderboard),
+      latestResult: latestResult(raw.latestResult, () => next.latestResult),
+    }
+    callback({ ...last, connection: 'live' })
+  }
+  // `event: dial`: only the live claim moved. Everything else keeps its reference.
+  const deliverDial = (raw) => {
+    if (closed || !last) return
+    const liveClaim = raw.liveClaim ?? null
+    if (liveClaim === last.liveClaim) return
+    last = { ...last, liveClaim }
     callback({ ...last, connection: 'live' })
   }
   const markOffline = () => {
@@ -74,6 +109,13 @@ function subscribeLive(callback) {
         // ignore a garbled event; the next one replaces it
       }
     }
+    source.addEventListener('dial', (event) => {
+      try {
+        deliverDial(JSON.parse(event.data))
+      } catch {
+        // ignore a garbled event; the next one replaces it
+      }
+    })
     source.onerror = () => {
       startPolling()
       // EventSource retries by itself after a dropped connection, but gives up
