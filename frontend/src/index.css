@@ -152,3 +152,29 @@ body {
 .anim-shake {
   animation: shake 0.5s ease-out both;
 }
+
+/* Screen changes crossfade. `transform` on the layer also keeps a fixed
+   camera shell inside the fading box for the length of the animation. */
+@keyframes stage-enter {
+  from { opacity: 0; transform: scale(0.965); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes stage-leave {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(1.015); }
+}
+.stage-enter {
+  animation: stage-enter 0.68s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.stage-leave {
+  animation: stage-leave 0.68s ease both;
+  pointer-events: none;
+}
+
+@keyframes quiet-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+.quiet-pulse {
+  animation: quiet-pulse 1.8s ease-in-out infinite;
+}
