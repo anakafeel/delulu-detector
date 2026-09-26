@@ -10,7 +10,7 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 export default function ActiveRound({ screen, activeRound, player, liveClaim }) {
   if (!activeRound) return null
 
-  // Rounds 1-2 only reveal the locked claim with the result, so it can be unknown here.
+  // The claim is live from the dial ({"type":"dial"}); unknown only with an older sketch.
   const hasClaim = liveClaim !== null && liveClaim !== undefined
   const value = hasClaim ? liveClaim : 0
   const isPerforming = screen === 'performing'

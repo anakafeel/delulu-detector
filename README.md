@@ -38,6 +38,8 @@ At boot the sketch prints one extra status line naming the accelerometer it foun
 
 This is the PRD's `{claim, actual, round_id}` plus a few extra fields. `round_id` is the round **type** (1 = Reflex, 2 = Steady Hands). `seq` counts attempts since the Arduino booted. The Pi keeps its own per-player round numbers. The Pi ignores `status` lines and anything that isn't valid JSON, like boot noise or half-lines.
 
+Live dial (for the browser UI only): while it waits for the lock press, the sketch also prints `{"type":"dial","value":57}`, the knob position on the same 0-100 scale as the claim. It is smoothed, sent only when the value changes by 1 or more (with a little hysteresis so it doesn't flicker), at most every 100 ms, plus once after boot, after every round and after every command. The `locked` status line carries the claim it just read: `{"type":"status","state":"locked","claim":72}`. Both are additions: the Pi never prints dial lines, and `--calibrate` and the scoring ignore them. The Pi also works with an older sketch that doesn't send them (the UI then shows `?` until the result).
+
 ### Scoring
 - Reaction time to performance (0-100): **150 ms or faster = 100, 600 ms or slower = 0**, linear in between, clamped. You can change this in `pi/config.py` (`REFLEX_FAST_MS`, `REFLEX_SLOW_MS`).
 - `gap = |claim - performance|` (both 0-100). `score = round(100 - gap)`.
@@ -221,14 +223,14 @@ python pi/main.py --mock --player Tester --rounds 4 --seed 1
 `--mock` sends the Pi JSON lines in the same format the Arduino would print. The simulated player starts overconfident and recalibrates, with the odd false start. `--mock --round 2` simulates Steady Hands holds instead (with the odd accelerometer read error, which is reported and not scored), and `--mock --calibrate` exercises the calibration printout. If `ELEVENLABS_API_KEY` isn't set, this also exercises the fallback path. Add `--no-audio` for silent runs and `--mock-delay 0` for fast ones.
 
 ### Live browser UI
-`--ui` shows the game in a browser while you play: idle screen, the round in progress, the locked claim (Round 5 sends it before measuring; Rounds 1 and 2 reveal it with the result), the reveal (claim, reality, gap, tier, the narrator's line, the raw measurement) and the leaderboard and calibration curve from `data/sessions.db`.
+`--ui` shows the game in a browser while you play: idle screen, the round in progress, the claim moving live as the knob turns (with the current sketch), the locked claim while the round runs, the reveal (claim, reality, gap, tier, the narrator's line, the raw measurement) and the leaderboard and calibration curve from `data/sessions.db`.
 
 ```bash
 # once per machine (needs Node 20.19+): build the frontend so Python can serve it
 cd frontend && npm install && npm run build && cd ..
 
 python pi/main.py --port /dev/ttyACM0 --player Saim --ui     # then open http://localhost:8765
-python pi/main.py --mock --player Tester --ui                # simulated rounds; stays up until Ctrl+C
+python pi/main.py --mock --player Tester --ui                # simulated rounds (and knob turns); stays up until Ctrl+C
 ```
 `pi/ui_server.py` (stdlib only) runs in a background thread: `GET /api/state` is the current state as JSON, `GET /api/events` pushes it on every change (Server-Sent Events), and `/` serves `frontend/dist`, so the venue needs no Node. A UI problem is reported once and never stops a round; if the port is taken the game runs without the UI. Flags: `--ui-port` (default 8765), `--ui-host` (default 127.0.0.1; `0.0.0.0` to open it from another device on the network). Timings (how long the reveal stays up, when it falls back to the idle screen) are `UI_*` in `pi/config.py`.
 

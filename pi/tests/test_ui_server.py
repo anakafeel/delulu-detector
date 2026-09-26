@@ -371,6 +371,7 @@ def test_real_ui_state_through_process_reading(monkeypatch, tmp_path):
 
 def test_main_mock_with_ui_updates_state_and_serves(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
     monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
     captured = {}
     real_start = main.start_ui
@@ -399,6 +400,7 @@ def test_main_mock_with_ui_updates_state_and_serves(monkeypatch, tmp_path):
 
 def test_main_mock_steady_sensor_error_reaches_the_ui(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
     monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
     rejected = []
     monkeypatch.setattr(ui_server.GameState, "round_rejected",

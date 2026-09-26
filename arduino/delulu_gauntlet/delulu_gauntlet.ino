@@ -48,6 +48,12 @@
  * Informational lines (Pi ignores them, handy in the Serial Monitor):
  *   boot: {"type":"status","state":"ready","accel":"LIS3DH@0x19"}   ("accel":"none" if not found)
  *   {"type":"status","state":"ready"} / "locked" / "cue" / "countdown" / "hold"
+ *   "locked" also carries the claim just read: {"type":"status","state":"locked","claim":72}
+ * Live dial, only while waiting for the lock press (the browser UI shows it as the claim is set):
+ *   {"type":"dial","value":57}
+ *   Smoothed, sent when the value changes by 1 or more (with a little hysteresis so it doesn't
+ *   flicker between two values), at most every DIAL_REPORT_MS, and once after boot, after every
+ *   round and after every command so the Pi always has the current value.
  */
 
 #include <Wire.h>
@@ -81,6 +87,10 @@
 #define BUZZER_FREQ_HZ        2000
 #define BUZZER_MS             120
 #define DIAL_ADC_MAX          1023   // raise/lower if your pot doesn't hit the rails
+#define DIAL_SAMPLE_MS        10     // live dial: sample the pot this often while waiting for a claim
+#define DIAL_SMOOTH_DIV       8      // exponential smoothing, new sample weight 1/8 (~80 ms time constant)
+#define DIAL_REPORT_MS        100    // at most one {"type":"dial"} line this often
+#define DIAL_HYST_TENTHS      3      // must move 0.3 past the next value's edge before it is reported
 
 // Round 2 (Steady Hands)
 #define STEADY_COUNTDOWN_MS   1500   // "get ready" 3-2-1 before the hold
@@ -175,6 +185,63 @@ int readClaim() {
   raw /= 8;
   long claim = map(raw, 0, DIAL_ADC_MAX, 0, 100);
   return (int)constrain(claim, 0, 100);
+}
+
+// ============================ Live dial ============================
+// Between rounds only. Smoothed in fixed point (ADC count * 256), reported in the
+// same 0-100 steps as readClaim() so the value shown matches the claim that locks.
+long dialSmooth = -1;                // -1 = not primed yet
+int dialReported = -1;
+bool dialForce = true;               // send the current value even if it didn't change
+unsigned long dialSampleAt = 0;
+unsigned long dialReportAt = 0;
+
+void dialRequestReport() {
+  dialForce = true;
+}
+
+void printDial(int value) {
+  Serial.print(F("{\"type\":\"dial\",\"value\":"));
+  Serial.print(value);
+  Serial.println(F("}"));
+}
+
+void updateLiveDial() {
+  const unsigned long now = millis();
+  if (dialSmooth < 0 || now - dialSampleAt >= DIAL_SAMPLE_MS) {
+    dialSampleAt = now;
+    const long sample = (long)analogRead(DIAL_PIN) * 256L;
+    if (dialSmooth < 0) {
+      dialSmooth = sample;
+    } else {
+      dialSmooth += (sample - dialSmooth) / DIAL_SMOOTH_DIV;
+    }
+  }
+  if (now - dialReportAt < DIAL_REPORT_MS) {
+    return;
+  }
+  const long fullScale = (long)DIAL_ADC_MAX * 256L;
+  // Floor, like readClaim()'s map(). "+ DIAL_SMOOTH_DIV" undoes the smoothing's integer
+  // lag (always under DIAL_SMOOTH_DIV units), so the top of the pot still reaches 100.
+  long tenths = (dialSmooth + DIAL_SMOOTH_DIV) * 1000L / fullScale;   // 0-1000
+  tenths = constrain(tenths, 0L, 1000L);
+  const int value = (int)(tenths / 10);
+  bool report = dialForce || dialReported < 0;
+  if (!report && value != dialReported) {
+    if (value == 0 || value == 100) {
+      report = true;                 // always reach the ends of the scale
+    } else if (value > dialReported) {
+      report = tenths >= (long)(dialReported + 1) * 10L + DIAL_HYST_TENTHS;
+    } else {
+      report = tenths < (long)dialReported * 10L - DIAL_HYST_TENTHS;
+    }
+  }
+  if (report) {
+    printDial(value);
+    dialReported = value;
+    dialForce = false;
+    dialReportAt = now;
+  }
 }
 
 void printStatus(const char *state) {
@@ -448,6 +515,7 @@ void handleCommand(char *cmd, bool overflow) {
   } else {
     Serial.println(F("{\"type\":\"status\",\"state\":\"error\",\"error\":\"unknown_command\"}"));
   }
+  dialRequestReport();               // re-send the dial after every answer (the Pi may have just connected)
 }
 
 // Non-blocking: collect bytes until '\n' and act on the line. Only called between rounds.
@@ -644,8 +712,15 @@ void setup() {
   Serial.println(F("\"}"));
 }
 
+void printLocked(int claim) {
+  Serial.print(F("{\"type\":\"status\",\"state\":\"locked\",\"claim\":"));
+  Serial.print(claim);
+  Serial.println(F("}"));
+}
+
 void loop() {
   pollSerialCommands();              // R1 / R2 / ? from the Pi, only between rounds
+  updateLiveDial();                  // {"type":"dial"} while the claim is being set
 
   // 1-2. Wait for the lock press; the dial value at that moment is the claim.
   unsigned long lockAt = 0;
@@ -654,7 +729,7 @@ void loop() {
   }
   int claim = readClaim();
   seq++;
-  printStatus("locked");
+  printLocked(claim);
   waitForRelease();
 
   if (roundMode == ROUND_STEADY) {
@@ -662,4 +737,5 @@ void loop() {
   } else {
     playReflexRound(claim);
   }
+  dialRequestReport();               // back to setting a claim: send the current value
 }

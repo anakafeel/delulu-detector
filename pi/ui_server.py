@@ -186,9 +186,10 @@ class GameState:
 
     def __init__(self, clock: Callable[[], float] = time.monotonic,
                  reveal_hold_s: Optional[float] = None, idle_after_s: Optional[float] = None,
-                 history_limit: Optional[int] = None):
+                 history_limit: Optional[int] = None, reveal_min_s: Optional[float] = None):
         self._clock = clock
         self.reveal_hold_s = config.UI_REVEAL_HOLD_S if reveal_hold_s is None else reveal_hold_s
+        self.reveal_min_s = config.UI_REVEAL_MIN_S if reveal_min_s is None else reveal_min_s
         self.idle_after_s = config.UI_IDLE_AFTER_S if idle_after_s is None else idle_after_s
         self.history_limit = config.UI_HISTORY_LIMIT if history_limit is None else history_limit
         self._cond = threading.Condition()
@@ -204,6 +205,7 @@ class GameState:
         self.stage: Optional[str] = None   # last Arduino status state (locked, cue, hold, ...)
         self.active_round_id: Optional[int] = None
         self.live_claim: Optional[float] = None
+        self.dial_value: Optional[int] = None   # live knob position ({"type":"dial"}), newer sketches only
         self.latest_result: Optional[dict] = None
         self.history: list[dict] = []
         self.leaderboard: list[dict] = []
@@ -284,7 +286,9 @@ class GameState:
                 self.armed = True
                 if self.phase != "performing":
                     self.active_round_id = self.selected_round
-                    self.live_claim = None
+                    # Newer sketches put the locked claim on "locked"; else the last dial position.
+                    claim = _int(status.get("claim")) if state == "locked" else None
+                    self.live_claim = claim if claim is not None else self.dial_value
                     self.notice = None
                     self._set_phase("performing")
             elif state == "error":
@@ -292,6 +296,34 @@ class GameState:
             else:
                 return
             self.stage = state
+            self._changed()
+
+    @_crash_safe
+    def dial(self, value) -> None:
+        """The knob moved ({"type":"dial","value":N}, sent only while a claim is being set).
+
+        Shown as liveClaim on the "predicting" screen. Turning the knob also wakes the idle
+        screen, and ends the reveal once it has been up for reveal_min_s: someone is setting
+        the next claim. (The sketch re-sends an unchanged value after each round; that
+        doesn't count as turning.)
+        """
+        v = _int(value)
+        if v is None:
+            return
+        v = max(0, min(100, v))
+        with self._cond:
+            if v == self.dial_value:
+                return
+            self.dial_value = v
+            screen = self._effective_screen()
+            if (screen == "reveal" and self.armed
+                    and self._clock() - self.phase_since >= self.reveal_min_s):
+                screen = "predicting"
+            if self.armed and screen in ("idle", "predicting"):
+                if self.phase != "predicting":
+                    self.active_round_id = self.selected_round
+                    self.live_claim = None
+                self._set_phase("predicting")      # also restarts the idle timeout
             self._changed()
 
     @_crash_safe
@@ -392,7 +424,8 @@ class GameState:
             "screen": screen,
             "player": self.player,
             "activeRound": active_round(self.active_round_id) if show_round else None,
-            "liveClaim": self.live_claim if screen in ("performing", "reveal") else None,
+            "liveClaim": (self.dial_value if screen == "predicting"
+                          else self.live_claim if screen in ("performing", "reveal") else None),
             "latestResult": self.latest_result,
             "history": self.history,
             "leaderboard": self.leaderboard,
