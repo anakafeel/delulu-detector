@@ -45,17 +45,17 @@ export default function CalibrationCurve({ state }) {
   }, [linePath])
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 font-panel">
       <div className="flex items-baseline justify-between">
-        <h3 className="font-display text-xs uppercase tracking-[0.3em] text-ink-dim">
+        <h3 className="font-panel text-sm font-bold tracking-tight text-ink-dim">
           Calibration Curve
         </h3>
-        {player && <span className="font-game text-xs text-ink-faint">{player}</span>}
+        {player && <span className="font-panel text-xs text-ink-faint">{player}</span>}
       </div>
 
       <div ref={containerRef} className="w-full">
       {points.length < 2 ? (
-        <p className="font-game text-sm text-ink-faint">Needs at least 2 rounds to plot.</p>
+        <p className="font-panel text-sm text-ink-faint">Needs at least 2 rounds to plot.</p>
       ) : (
         <>
           <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="block">
@@ -78,7 +78,7 @@ export default function CalibrationCurve({ state }) {
                     dominantBaseline="middle"
                     className="fill-ink-faint"
                     fontSize={8}
-                    fontFamily="var(--font-game)"
+                    fontFamily="var(--font-panel)"
                   >
                     {v}
                   </text>
@@ -121,7 +121,7 @@ export default function CalibrationCurve({ state }) {
                     textAnchor="middle"
                     fontSize={isLast ? 10 : 8}
                     fontWeight={isLast ? 700 : 400}
-                    fontFamily="var(--font-game)"
+                    fontFamily="var(--font-panel)"
                     fill={isLast ? p.severity.color : 'var(--color-ink-dim)'}
                   >
                     {p.gap}
@@ -133,7 +133,7 @@ export default function CalibrationCurve({ state }) {
 
           <div className="flex flex-wrap gap-x-3 gap-y-1 px-1">
             {SEVERITY_LEVELS.map((l) => (
-              <span key={l.key} className="flex items-center gap-1 font-game text-[0.6rem] text-ink-faint">
+              <span key={l.key} className="flex items-center gap-1 font-panel text-[0.6rem] text-ink-faint">
                 <span
                   className="inline-block h-1.5 w-1.5 rounded-full"
                   style={{ background: l.color }}

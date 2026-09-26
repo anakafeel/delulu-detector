@@ -32,7 +32,7 @@ export default function App() {
   const state = useGameState()
 
   return (
-    <div className="relative flex h-screen flex-col bg-void p-5">
+    <div className="app-shell relative flex h-screen flex-col bg-void p-5">
       <div className="void-grid pointer-events-none absolute inset-0 opacity-40" />
       <div className="crt-overlay" />
 
@@ -65,7 +65,7 @@ export default function App() {
           )}
         </main>
 
-        <aside className="flex flex-col gap-5 overflow-y-auto rounded-2xl border border-ink-faint/25 bg-surface/60 p-5">
+        <aside className="session-panel flex flex-col gap-5 overflow-y-auto rounded-2xl border border-ink-faint/25 bg-surface/60 p-5">
           <Leaderboard history={state.history} />
           <div className="border-t border-ink-faint/20 pt-5">
             <CalibrationCurve state={state} />

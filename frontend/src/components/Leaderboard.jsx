@@ -5,19 +5,19 @@ export default function Leaderboard({ history }) {
   const totalRounds = history.length
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 font-panel">
       <div className="flex items-baseline justify-between">
-        <h3 className="font-display text-xs uppercase tracking-[0.3em] text-ink-dim">
+        <h3 className="font-panel text-sm font-bold tracking-tight text-ink-dim">
           Leaderboard
         </h3>
-        <span className="font-game text-xs text-ink-faint">{totalRounds} rounds played</span>
+        <span className="font-panel text-xs text-ink-faint">{totalRounds} rounds played</span>
       </div>
 
       {rows.length === 0 ? (
-        <p className="font-game text-sm text-ink-faint">No rounds yet.</p>
+        <p className="font-panel text-sm text-ink-faint">No rounds yet.</p>
       ) : (
         <div className="flex flex-col gap-1.5">
-          <div className="grid grid-cols-[1.4rem_1fr_3.5rem_5rem_3.5rem] gap-2 px-2 font-game text-[0.65rem] uppercase tracking-wider text-ink-faint">
+          <div className="grid grid-cols-[1.4rem_1fr_3.5rem_5rem_3.5rem] gap-2 px-2 font-panel text-[0.65rem] uppercase tracking-wider text-ink-faint">
             <span />
             <span>Player</span>
             <span className="text-right">Best</span>
@@ -28,7 +28,7 @@ export default function Leaderboard({ history }) {
           {rows.map((row, i) => (
             <div
               key={row.player}
-              className="anim-fade-in-up grid grid-cols-[1.4rem_1fr_3.5rem_5rem_3.5rem] items-center gap-2 rounded-md border border-ink-faint/20 bg-surface px-2 py-1.5 font-game text-sm"
+              className="anim-fade-in-up grid grid-cols-[1.4rem_1fr_3.5rem_5rem_3.5rem] items-center gap-2 rounded-md border border-ink-faint/20 bg-surface px-2 py-1.5 font-panel text-sm"
             >
               <span
                 className="text-xs font-bold"
