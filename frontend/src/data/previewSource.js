@@ -55,7 +55,8 @@ const SCENES = [
 const KEY_TO_SCENE = { 1: 0, 2: 1, 3: 2, 4: 3 }
 
 export function previewEnabled() {
-  if (import.meta.env.VITE_UI_PREVIEW === '1') return true
+  const flag = import.meta.env.VITE_UI_PREVIEW
+  if (import.meta.env.MODE === 'preview' || flag === '1' || flag === 'true') return true
   if (typeof window === 'undefined') return false
   return new URLSearchParams(window.location.search).get('preview') === '1'
 }
