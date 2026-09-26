@@ -41,11 +41,15 @@ SERIAL_OPEN_SETTLE_S = 2.0
 REFLEX_FAST_MS = 150   # this fast or faster = 100
 REFLEX_SLOW_MS = 600   # this slow or slower = 0 (linear in between, clamped)
 
-# A false start (pressed before the cue) or a timeout (never pressed) is
-# scored as this performance value. Set to None to void the round instead
-# (it is still logged, but gets no gap/score and does not hit the leaderboard).
-FALSE_START_PERFORMANCE: float | None = 0.0
-TIMEOUT_PERFORMANCE: float | None = 0.0
+# A false start (pressed before the cue) or a timeout (never pressed) always
+# scores this, whatever the claim. There is no measured performance, so the
+# round gets no performance and no gap (both NULL in the log). Its tier stays
+# "false_start" or "timeout". It still counts toward rounds played and toward
+# the average score (as this value), but it is left out of best gap, worst gap,
+# "most delulu" and the calibration series.
+# (Scoring these as performance 0 used to let a claim of 0 plus a false start
+# or timeout earn gap 0, a perfect 100, and the best gap on the leaderboard.)
+FAILED_ROUND_SCORE = 0
 
 # --------------------------------------------------------------------------
 # Verdict tiers: (max_gap_inclusive, tier_name). Checked in order.

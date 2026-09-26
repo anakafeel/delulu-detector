@@ -39,9 +39,10 @@
 #define RANDOM_DELAY_MIN_MS   1500
 #define RANDOM_DELAY_MAX_MS   4000
 #define REACTION_TIMEOUT_MS   3000   // no press this long after cue = timeout
-#define DEBOUNCE_MS           30
 #define RELEASE_SETTLE_MS     80     // button must stay released this long after a press
-#define PRESS_CONFIRM_MS      10     // a press must stay down this long to count (ignores contact flicker)
+#define PRESS_CONFIRM_MS      10     // a press needs this much contact to count (ignores flicker)
+#define PRESS_BOUNCE_MS       3      // a release shorter than this while confirming is bounce, not a let-go
+#define PRESS_CONFIRM_MAX_MS  30     // give up if PRESS_CONFIRM_MS of contact isn't reached this soon
 #define BUZZER_FREQ_HZ        2000
 #define BUZZER_MS             120
 #define DIAL_ADC_MAX          1023   // raise/lower if your pot doesn't hit the rails
@@ -76,21 +77,43 @@ void waitForRelease() {
   }
 }
 
-// If the button reads pressed, confirm it stays pressed for PRESS_CONFIRM_MS.
-// Returns true for a real press and sets firstAt to the millis() of first contact,
-// so reaction time is measured from first contact, not from confirmation.
-// A flicker shorter than PRESS_CONFIRM_MS returns false.
+// Used for every press (lock, false start, reaction). If the button reads
+// pressed, record that first contact edge once, then keep sampling until the
+// button has read pressed for PRESS_CONFIRM_MS in total. Bounces (releases
+// shorter than PRESS_BOUNCE_MS) don't reset the first-contact time; their
+// released time just doesn't count toward PRESS_CONFIRM_MS.
+// Returns true for a real press and sets firstAt to the millis() of the first
+// contact edge, so reaction time is measured from first contact, not from
+// confirmation. Returns false (firstAt untouched) if the button is released for
+// PRESS_BOUNCE_MS or longer, or if confirmation takes over PRESS_CONFIRM_MAX_MS
+// (noise, not a press).
 bool confirmedPress(unsigned long &firstAt) {
   if (!buttonPressed()) {
     return false;
   }
-  unsigned long t0 = millis();
-  while (millis() - t0 < PRESS_CONFIRM_MS) {
-    if (!buttonPressed()) {
+  const unsigned long contactMs = millis();   // first contact edge, never reset
+  const unsigned long startUs = micros();
+  unsigned long lastUs = startUs;
+  unsigned long pressedUs = 0;                // accumulated time read as pressed
+  unsigned long releasedSinceUs = 0;
+  bool released = false;
+  while (pressedUs < PRESS_CONFIRM_MS * 1000UL) {
+    unsigned long nowUs = micros();
+    if (nowUs - startUs >= PRESS_CONFIRM_MAX_MS * 1000UL) {
       return false;
     }
+    if (buttonPressed()) {
+      pressedUs += nowUs - lastUs;
+      released = false;
+    } else if (!released) {
+      released = true;
+      releasedSinceUs = nowUs;
+    } else if (nowUs - releasedSinceUs >= PRESS_BOUNCE_MS * 1000UL) {
+      return false;                           // really let go: not a press
+    }
+    lastUs = nowUs;
   }
-  firstAt = t0;
+  firstAt = contactMs;
   return true;
 }
 
@@ -171,12 +194,9 @@ void setup() {
 
 void loop() {
   // 1-2. Wait for the lock press; the dial value at that moment is the claim.
-  if (!buttonPressed()) {
-    return;
-  }
-  delay(DEBOUNCE_MS);
-  if (!buttonPressed()) {
-    return;  // bounce / noise
+  unsigned long lockAt = 0;
+  if (!confirmedPress(lockAt)) {
+    return;  // not pressed, or bounce / noise
   }
   int claim = readClaim();
   seq++;
@@ -211,6 +231,7 @@ void loop() {
     if (millis() - cueAt >= REACTION_TIMEOUT_MS) {
       cueOff();
       printResult(claim, -1, false, true);
+      waitForRelease();  // a late press must not count as the next lock press
       printStatus("ready");
       return;
     }

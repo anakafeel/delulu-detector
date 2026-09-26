@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-import config
 from main import parse_line
 from scoring import score_reflex_round
 from session_log import SessionLog, new_session_id
@@ -45,7 +44,16 @@ def test_round_numbers_are_per_player_per_session(log):
 def test_false_start_logged(log):
     log.log_round("s", "jumpy", score_reflex_round(80, None, false_start=True))
     (row,) = log.rounds("jumpy")
-    assert row["false_start"] == 1 and row["actual_ms"] is None and row["gap"] == 80.0
+    assert row["false_start"] == 1 and row["timeout"] == 0 and row["actual_ms"] is None
+    assert row["performance"] is None and row["gap"] is None
+    assert row["score"] == 0 and row["tier"] == "false_start"
+
+
+def test_timeout_logged(log):
+    log.log_round("s", "sleepy", score_reflex_round(0, None, timeout=True))
+    (row,) = log.rounds("sleepy")
+    assert row["timeout"] == 1 and row["gap"] is None and row["score"] == 0
+    assert row["tier"] == "timeout"
 
 
 def test_leaderboard_best_worst_total(log):
@@ -60,12 +68,52 @@ def test_leaderboard_best_worst_total(log):
     assert log.most_delulu()["player"] == "alice"
 
 
-def test_voided_rounds_count_but_do_not_rank(log, monkeypatch):
-    monkeypatch.setattr(config, "FALSE_START_PERFORMANCE", None)
+def test_failed_rounds_count_but_do_not_rank(log):
     log.log_round("s", "carol", score_reflex_round(80, None, false_start=True))
     (row,) = log.leaderboard()
-    assert row["total_rounds"] == 1 and row["best_gap"] is None
+    assert row["total_rounds"] == 1
+    assert row["best_gap"] is None and row["worst_gap"] is None
+    assert row["avg_score"] == 0
     assert log.calibration_series("carol") == []
+    assert log.calibration_series("carol", "s") == []
+    assert log.most_delulu() is None
+
+
+def test_claim_zero_timeout_and_false_start_excluded_from_leaderboard(log):
+    # The exploit: claim 0 and never press (or jump the gun) used to be gap 0.
+    log.log_round("s", "gamer", score_reflex_round(0, None, timeout=True))
+    log.log_round("s", "gamer", score_reflex_round(0, None, false_start=True))
+    log.log_round("s", "gamer", score_reflex_round(60, 375))        # perf 50, gap 10, score 90
+    log.log_round("s", "honest", score_reflex_round(75, 240))       # perf 80, gap 5, score 95
+    log.log_round("s", "only_fails", score_reflex_round(0, None, timeout=True))
+
+    board = log.leaderboard()
+    assert [r["player"] for r in board] == ["honest", "gamer", "only_fails"]
+    gamer = board[1]
+    assert gamer["best_gap"] == 10.0 and gamer["worst_gap"] == 10.0
+    assert gamer["total_rounds"] == 3
+    assert gamer["avg_score"] == 30.0                                # (0 + 0 + 90) / 3
+    only_fails = board[2]
+    assert only_fails["best_gap"] is None and only_fails["total_rounds"] == 1
+    assert log.most_delulu()["player"] == "gamer"                    # only real gaps count
+    assert log.calibration_series("gamer", "s") == [(3, 10.0)]
+    assert log.calibration_series("gamer") == [(1, 10.0)]
+
+
+def test_legacy_rows_with_a_gap_on_failed_rounds_are_still_excluded(log):
+    # Rows written before this fix stored performance 0 and a gap for failed rounds.
+    log.conn.execute(
+        """INSERT INTO rounds (ts, session_id, player, round_id, round_number, claim, actual_ms,
+                               false_start, timeout, performance, gap, score, tier)
+           VALUES ('2026-09-25T12:00:00+00:00', 'old', 'legacy', 1, 1, 0, NULL, 0, 1,
+                   0.0, 0.0, 100, 'timeout')"""
+    )
+    log.conn.commit()
+    log.log_round("new", "legacy", score_reflex_round(70, 375))      # gap 20, score 80
+    (row,) = log.leaderboard()
+    assert row["best_gap"] == 20.0 and row["worst_gap"] == 20.0
+    assert row["total_rounds"] == 2 and row["avg_score"] == 40.0      # legacy row counts as 0
+    assert log.calibration_series("legacy") == [(1, 20.0)]
 
 
 def test_calibration_series(log):

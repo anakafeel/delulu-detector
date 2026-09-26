@@ -64,24 +64,41 @@ def test_score_reflex_round_validated_and_under():
     assert r.gap == 5.0 and r.tier == "validated" and r.direction == "under"
 
 
-def test_false_start_scores_zero_performance():
+def test_false_start_scores_zero_with_no_gap():
     r = score_reflex_round(claim=85, actual_ms=None, false_start=True)
-    assert r.false_start
-    assert r.performance == 0.0
-    assert r.gap == 85.0
-    assert r.score == 15
-    assert r.tier == "false_start"
+    assert r.false_start and r.failed
+    assert r.performance is None and r.gap is None
+    assert r.score == 0
+    assert r.tier == "false_start" and r.direction == "n/a"
+    assert not r.scored
 
 
 def test_missing_ms_is_timeout():
     r = score_reflex_round(claim=40, actual_ms=None)
-    assert r.timeout and r.tier == "timeout" and r.gap == 40.0
+    assert r.timeout and r.tier == "timeout"
+    assert r.score == 0 and r.gap is None and r.performance is None
 
 
-def test_false_start_can_be_voided(monkeypatch):
-    monkeypatch.setattr(config, "FALSE_START_PERFORMANCE", None)
-    r = score_reflex_round(claim=85, actual_ms=None, false_start=True)
-    assert not r.scored and r.tier == "void" and r.score is None
+def test_claim_zero_with_timeout_is_not_a_perfect_score():
+    # Regression: this used to be performance 0 -> gap 0 -> score 100.
+    r = score_reflex_round(0, None, timeout=True)
+    assert r.score == 0
+    assert r.tier == "timeout"
+    assert r.gap is None and r.performance is None
+    assert not r.scored
+
+
+def test_claim_zero_with_false_start_is_not_a_perfect_score():
+    r = score_reflex_round(0, None, false_start=True)
+    assert r.score == 0
+    assert r.tier == "false_start"
+    assert r.gap is None and r.performance is None
+    assert not r.scored
+
+
+def test_false_start_wins_over_timeout_flag():
+    r = score_reflex_round(50, None, false_start=True, timeout=True)
+    assert r.tier == "false_start" and r.score == 0
 
 
 def test_claim_is_clamped():

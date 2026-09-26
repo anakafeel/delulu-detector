@@ -2,9 +2,9 @@
 
 deliver_verdict() is the one call main.py makes:
   1. build the verdict text from the round numbers (template picked by gap tier),
-  2. try ElevenLabs TTS (REST, `requests`) with a hard total timeout
-     (config.ELEVENLABS_TIMEOUT_S, default 3 s),
-  3. on no key / timeout / HTTP error / no audio: play the pre-recorded fallback
+  2. try ElevenLabs TTS (REST, `requests`) with a hard total time budget
+     (config.ELEVENLABS_TIMEOUT_S, default 3 s, covering connect + download),
+  3. on no key / timeout / HTTP error / no audio / mp3 write error: play the pre-recorded fallback
      (assets/fallback_<tier>.mp3, else assets/fallback_verdict.mp3), and if
      that is missing too, just print the verdict text.
 The verdict text is always printed so the audience can read it.
@@ -15,6 +15,7 @@ import random
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -60,11 +61,12 @@ TEMPLATES: dict[str, list[str]] = {
     ],
     "false_start": [
         "{player} locked in {claim} and pressed before the cue. False start. Confidence so high it time travelled.",
-        "False start! {player} claimed {claim} and couldn't even wait for the light. Gap: {gap}.",
+        "False start! {player} claimed {claim} and couldn't even wait for the light. Score: zero.",
     ],
     "timeout": [
-        "{player} claimed {claim}, then never pressed the button. Performance zero. Are you still with us?",
+        "{player} claimed {claim}, then never pressed the button. Score: zero. Are you still with us?",
     ],
+    # Safety net for any tier without its own lines (not produced by scoring today).
     "void": [
         "That round didn't count, {player}. Reset and try again.",
     ],
@@ -105,47 +107,104 @@ class TTSError(Exception):
     pass
 
 
-def synthesize(
-    text: str,
-    out_path: Path,
-    api_key: str = config.ELEVENLABS_API_KEY,
-    voice_id: str = config.ELEVENLABS_VOICE_ID,
-    model_id: str = config.ELEVENLABS_MODEL_ID,
-    timeout_s: float = config.ELEVENLABS_TIMEOUT_S,
-) -> Path:
-    """Call ElevenLabs TTS and write an mp3. Raises TTSError on any failure.
+def _socket_timeouts(remaining_s: float) -> tuple[float, float]:
+    """(connect, read) timeouts for requests, carved out of the remaining budget.
 
-    timeout_s is a TOTAL budget (connect + download), not just per socket read.
+    They add up to remaining_s, so connecting plus waiting for the first byte
+    can't outrun the budget at the socket level either. The read timeout is
+    per socket read, so synthesize() also enforces the deadline on the wall
+    clock.
     """
-    if not api_key:
-        raise TTSError("ELEVENLABS_API_KEY not set")
-    url = f"{config.ELEVENLABS_BASE_URL}/v1/text-to-speech/{voice_id}"
-    deadline = time.monotonic() + timeout_s
+    connect_s = remaining_s / 2.0
+    return connect_s, remaining_s - connect_s
+
+
+def _fetch_audio(url: str, params: dict, headers: dict, payload: dict,
+                 deadline: float, timeout_s: float, cancel: threading.Event) -> bytes:
+    """Do the HTTP request and download. Runs in a worker thread (see synthesize)."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TTSError(f"no time left in the {timeout_s}s budget")
     try:
-        resp = requests.post(
-            url,
-            params={"output_format": config.ELEVENLABS_OUTPUT_FORMAT},
-            headers={"xi-api-key": api_key, "Content-Type": "application/json",
-                     "Accept": "audio/mpeg"},
-            json={"text": text, "model_id": model_id},
-            timeout=timeout_s,
-            stream=True,
-        )
+        resp = requests.post(url, params=params, headers=headers, json=payload,
+                             timeout=_socket_timeouts(remaining), stream=True)
         with resp:
             if resp.status_code != 200:
                 raise TTSError(f"HTTP {resp.status_code}: {resp.text[:200]}")
             chunks = []
             for chunk in resp.iter_content(chunk_size=8192):
-                if time.monotonic() > deadline:
+                if cancel.is_set() or time.monotonic() > deadline:
                     raise TTSError(f"download exceeded {timeout_s}s budget")
                 chunks.append(chunk)
     except requests.RequestException as exc:
         raise TTSError(f"{type(exc).__name__}: {exc}") from exc
-    audio = b"".join(chunks)
+    return b"".join(chunks)
+
+
+def synthesize(
+    text: str,
+    out_path: Path,
+    api_key: Optional[str] = None,
+    voice_id: Optional[str] = None,
+    model_id: Optional[str] = None,
+    timeout_s: Optional[float] = None,
+) -> Path:
+    """Call ElevenLabs TTS and write an mp3. Raises TTSError on any failure.
+
+    Arguments left as None are read from config at call time.
+
+    timeout_s (default config.ELEVENLABS_TIMEOUT_S) is a TOTAL wall-clock
+    budget for DNS, connect, waiting for the first byte and the download:
+      - requests gets (connect, read) socket timeouts split from the budget,
+      - the deadline is checked between streamed chunks,
+      - the request runs in a daemon worker thread and we stop waiting for it
+        when the budget runs out, so a slow DNS lookup, a slow first byte or a
+        server that trickles bytes can't hold up the verdict. An abandoned
+        worker is told to stop and dies on its own socket timeouts.
+    """
+    api_key = config.ELEVENLABS_API_KEY if api_key is None else api_key
+    voice_id = voice_id or config.ELEVENLABS_VOICE_ID
+    model_id = model_id or config.ELEVENLABS_MODEL_ID
+    timeout_s = config.ELEVENLABS_TIMEOUT_S if timeout_s is None else timeout_s
+    if not api_key:
+        raise TTSError("ELEVENLABS_API_KEY not set")
+
+    url = f"{config.ELEVENLABS_BASE_URL}/v1/text-to-speech/{voice_id}"
+    params = {"output_format": config.ELEVENLABS_OUTPUT_FORMAT}
+    headers = {"xi-api-key": api_key, "Content-Type": "application/json",
+               "Accept": "audio/mpeg"}
+    payload = {"text": text, "model_id": model_id}
+    deadline = time.monotonic() + timeout_s
+    cancel = threading.Event()
+    outcome: dict = {}
+
+    def worker() -> None:
+        try:
+            outcome["audio"] = _fetch_audio(url, params, headers, payload,
+                                            deadline, timeout_s, cancel)
+        except BaseException as exc:  # handed to the caller below
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=worker, name="elevenlabs-tts", daemon=True)
+    thread.start()
+    thread.join(max(0.0, deadline - time.monotonic()))
+    if thread.is_alive():
+        cancel.set()
+        raise TTSError(f"TTS exceeded {timeout_s}s budget")
+
+    error = outcome.get("error")
+    if isinstance(error, TTSError):
+        raise error
+    if error is not None:
+        raise TTSError(f"{type(error).__name__}: {error}") from error
+    audio = outcome.get("audio", b"")
     if not audio:
         raise TTSError("empty audio response")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(audio)
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(audio)
+    except OSError as exc:
+        raise TTSError(f"could not write {out_path}: {exc}") from exc
     return out_path
 
 

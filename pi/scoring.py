@@ -48,15 +48,21 @@ class RoundResult:
     actual_ms: Optional[float]
     false_start: bool
     timeout: bool
-    performance: Optional[float]   # None = voided round
-    gap: Optional[float]
-    score: Optional[int]
-    tier: str                      # "validated" | "mild" | "spicy" | "delulu" | "false_start" | "timeout" | "void"
+    performance: Optional[float]   # None for a false start / timeout (nothing was measured)
+    gap: Optional[float]           # None for a false start / timeout
+    score: int                     # 0-100; always config.FAILED_ROUND_SCORE for a false start / timeout
+    tier: str                      # "validated" | "mild" | "spicy" | "delulu" | "false_start" | "timeout"
     direction: str                 # "over" (claimed more than delivered), "under", "spot_on", or "n/a"
 
     @property
     def scored(self) -> bool:
+        """True if the round has a real gap (counts for best/worst gap and calibration)."""
         return self.gap is not None
+
+    @property
+    def failed(self) -> bool:
+        """False start or timeout: fixed score, no gap."""
+        return self.false_start or self.timeout
 
 
 def score_reflex_round(
@@ -66,32 +72,30 @@ def score_reflex_round(
     timeout: bool = False,
     round_id: int = 1,
 ) -> RoundResult:
-    """Turn one raw Round-1 reading into a scored RoundResult."""
+    """Turn one raw Round-1 reading into a scored RoundResult.
+
+    A false start or timeout always scores config.FAILED_ROUND_SCORE (0) and has
+    no performance or gap, so claiming 0 and never pressing can't earn a perfect
+    score or a best gap.
+    """
     claim_i = int(round(clamp(float(claim))))
 
     if false_start:
-        performance = config.FALSE_START_PERFORMANCE
-        special = "false_start"
-    elif timeout or actual_ms is None:
-        timeout = True
-        performance = config.TIMEOUT_PERFORMANCE
-        special = "timeout"
-    else:
-        performance = reaction_ms_to_performance(float(actual_ms))
-        special = None
+        return RoundResult(round_id, claim_i, actual_ms, True, False,
+                           None, None, config.FAILED_ROUND_SCORE, "false_start", "n/a")
+    if timeout or actual_ms is None:
+        return RoundResult(round_id, claim_i, actual_ms, False, True,
+                           None, None, config.FAILED_ROUND_SCORE, "timeout", "n/a")
 
-    if performance is None:
-        return RoundResult(round_id, claim_i, actual_ms, false_start, timeout,
-                           None, None, None, "void", "n/a")
-
+    performance = reaction_ms_to_performance(float(actual_ms))
     gap = compute_gap(claim_i, performance)
     score = compute_score(gap)
-    tier = special or gap_tier(gap)
+    tier = gap_tier(gap)
     if abs(claim_i - performance) < 0.5:
         direction = "spot_on"
     elif claim_i > performance:
         direction = "over"
     else:
         direction = "under"
-    return RoundResult(round_id, claim_i, actual_ms, false_start, timeout,
+    return RoundResult(round_id, claim_i, actual_ms, False, False,
                        round(performance, 1), round(gap, 1), score, tier, direction)

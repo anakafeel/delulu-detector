@@ -14,8 +14,10 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sqlite3
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -128,9 +130,37 @@ def handle_reading(reading: dict, player: str, session_id: str, log: SessionLog,
     if result.scored:
         print(f"   gap {result.gap:.0f} | score {result.score} | tier {result.tier} ({result.direction})")
     else:
-        print("   round voided (not scored)")
+        print(f"   score {result.score} | tier {result.tier} (no gap; not counted for best/worst gap)")
     deliver_verdict(result, player, play=play_audio)
     return result, round_number
+
+
+def process_reading(reading: dict, player: str, session_id: str, log: SessionLog,
+                    play_audio: bool = True) -> bool:
+    """Score, log, narrate and show the leaderboard for one round.
+
+    Any failure (SQLite, writing the mp3, audio playback, ...) is reported on
+    stderr and swallowed so the main loop keeps listening for the next round.
+    Returns True if the round was handled cleanly.
+    """
+    try:
+        handle_reading(reading, player, session_id, log, play_audio=play_audio)
+        print_leaderboard(log)
+        return True
+    except sqlite3.Error as exc:
+        _report_round_error(f"session log (SQLite) error: {exc}. This round may not be saved")
+    except OSError as exc:
+        _report_round_error(f"file or audio error: {exc}")
+    except Exception as exc:  # noqa: BLE001 - never let one bad round end the game
+        _report_round_error(f"unexpected {type(exc).__name__}: {exc}", with_traceback=True)
+    return False
+
+
+def _report_round_error(message: str, with_traceback: bool = False) -> None:
+    print(f"   [error] round failed: {message}. Still listening for the next round.",
+          file=sys.stderr)
+    if with_traceback:
+        traceback.print_exc(file=sys.stderr)
 
 
 def print_leaderboard(log: SessionLog) -> None:
@@ -184,14 +214,16 @@ def main(argv: Optional[list[str]] = None) -> int:
             if reading["round_id"] != 1:
                 print(f"   (ignoring round_id {reading['round_id']}: only Round 1 is implemented)")
                 continue
-            handle_reading(reading, args.player, session_id, log, play_audio=not args.no_audio)
-            print_leaderboard(log)
+            process_reading(reading, args.player, session_id, log, play_audio=not args.no_audio)
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:
-        series = log.calibration_series(args.player, session_id)
-        if series:
-            print(f"\nCalibration series for {args.player} this session (round, gap): {series}")
+        try:
+            series = log.calibration_series(args.player, session_id)
+            if series:
+                print(f"\nCalibration series for {args.player} this session (round, gap): {series}")
+        except sqlite3.Error as exc:
+            print(f"   [error] could not read the calibration series: {exc}", file=sys.stderr)
         log.close()
     return 0
 
