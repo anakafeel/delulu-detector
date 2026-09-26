@@ -19,12 +19,13 @@ import random
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import requests
 
@@ -488,13 +489,21 @@ class Verdict:
 
 
 def deliver_verdict(result: RoundResult, player: str, play: bool = True,
-                    memory: Optional[LastLineMemory] = None) -> Verdict:
+                    memory: Optional[LastLineMemory] = None,
+                    on_text: Optional[Callable[[str], None]] = None) -> Verdict:
     """Print the verdict, then speak it (ElevenLabs, else fallback audio, else text only).
 
     memory defaults to SESSION_LINES, so a player doesn't hear the same line twice in a row.
+    on_text (optional, e.g. the browser UI) gets the line before any TTS or audio;
+    an error in it is reported and ignored.
     """
     text = build_verdict_text(result, player, memory=SESSION_LINES if memory is None else memory)
     print(f'   NARRATOR: "{text}"')
+    if on_text is not None:
+        try:
+            on_text(text)
+        except Exception as exc:  # noqa: BLE001 - a display hook must never cost the verdict
+            print(f"   [warn] verdict text hook failed: {exc}", file=sys.stderr)
     t0 = time.monotonic()
     out = config.TTS_OUTPUT_DIR / f"verdict_{datetime.now():%Y%m%d_%H%M%S_%f}.mp3"
     try:

@@ -12,6 +12,8 @@ Examples:
     python pi/main.py --mock --player Tester --rounds 3               # no hardware needed
     python pi/main.py --mock --round 2 --player Tester --rounds 3
     python pi/main.py --leaderboard
+    python pi/main.py --port /dev/ttyACM0 --player Saim --ui          # + live browser UI on http://localhost:8765
+    python pi/main.py --mock --player Tester --ui                     # UI with simulated rounds
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Optional
 
 import config
+import ui_server
 from elevenlabs_client import deliver_verdict
 from scoring import (ROUND_REFLEX, ROUND_STEADY, RoundResult, score_reading,
                      tremor_mg_to_performance)
@@ -321,9 +324,12 @@ def describe_reality(result: RoundResult) -> str:
 
 
 def handle_reading(reading: dict, player: str, session_id: str, log: SessionLog,
-                   play_audio: bool = True) -> tuple[RoundResult, int]:
+                   play_audio: bool = True,
+                   ui: Optional[ui_server.GameState] = None) -> tuple[RoundResult, int]:
     result = score_reading(reading)
     round_number = log.log_round(session_id, player, result)
+    if ui is not None:              # GameState methods never raise
+        ui.round_result(result, player, session_id, round_number, log)
 
     name = config.ROUND_NAMES.get(result.round_id, f"Round {result.round_id}")
     print(f"\n== {player} | round {round_number} | {name} ==")
@@ -332,12 +338,15 @@ def handle_reading(reading: dict, player: str, session_id: str, log: SessionLog,
         print(f"   gap {result.gap:.0f} | score {result.score} | tier {result.tier} ({result.direction})")
     else:
         print(f"   score {result.score} | tier {result.tier} (no gap; not counted for best/worst gap)")
-    deliver_verdict(result, player, play=play_audio)
+    if ui is not None:              # show the line in the browser before the audio plays
+        deliver_verdict(result, player, play=play_audio, on_text=ui.verdict_text)
+    else:
+        deliver_verdict(result, player, play=play_audio)
     return result, round_number
 
 
 def process_reading(reading: dict, player: str, session_id: str, log: SessionLog,
-                    play_audio: bool = True) -> bool:
+                    play_audio: bool = True, ui: Optional[ui_server.GameState] = None) -> bool:
     """Score, log, narrate and show the leaderboard for one round.
 
     Any failure (SQLite, writing the mp3, audio playback, ...) is reported on
@@ -345,7 +354,7 @@ def process_reading(reading: dict, player: str, session_id: str, log: SessionLog
     Returns True if the round was handled cleanly.
     """
     try:
-        handle_reading(reading, player, session_id, log, play_audio=play_audio)
+        handle_reading(reading, player, session_id, log, play_audio=play_audio, ui=ui)
         print_leaderboard(log)
         return True
     except sqlite3.Error as exc:
@@ -456,6 +465,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--no-audio", action="store_true", help="don't play audio (TTS/fallback still resolved)")
     ap.add_argument("--db", type=Path, default=config.DB_PATH, help=f"SQLite path (default {config.DB_PATH})")
     ap.add_argument("--leaderboard", action="store_true", help="print the leaderboard and exit")
+    ap.add_argument("--ui", action="store_true",
+                    help="serve the live game state to the browser UI (frontend/) on --ui-port")
+    ap.add_argument("--ui-port", type=int, default=config.UI_PORT,
+                    help=f"port for --ui (default {config.UI_PORT})")
+    ap.add_argument("--ui-host", default=config.UI_HOST,
+                    help=f"interface for --ui (default {config.UI_HOST}; 0.0.0.0 = reachable from other devices)")
     args = ap.parse_args(argv)
 
     if args.calibrate:
@@ -473,6 +488,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     source = (mock_lines(args.rounds, args.seed, args.mock_delay, args.round) if args.mock
               else serial_lines(args.port, args.baud, args.round))
 
+    if args.calibrate and args.ui:
+        print("   (--ui is not used with --calibrate; ignored)")
     if args.calibrate:
         print(f"Delulu Detector | CALIBRATION (Round 2 raw mg, nothing scored or logged) | "
               f"thresholds best {config.STEADY_BEST_MG:g} / worst {config.STEADY_WORST_MG:g} mg RMS")
@@ -486,12 +503,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"Delulu Detector | session {session_id} | player {args.player} | "
           f"Round {args.round} ({config.ROUND_NAMES[args.round]}) | db {args.db}")
     print(f"ElevenLabs key {key_state} | TTS timeout {config.ELEVENLABS_TIMEOUT_S}s")
+    ui, ui_srv = start_ui(args, session_id, log)
 
     try:
         for line in source:
             status = parse_status(line)
             if status is not None:
                 report_status(status, args.round)
+                if ui is not None:
+                    ui.on_status(status)
                 continue
             reading = parse_line(line)
             if reading is None:
@@ -505,14 +525,25 @@ def main(argv: Optional[list[str]] = None) -> int:
                       f"the Arduino hasn't switched yet. Scoring it as Round {rid}.)")
             if is_sensor_error(reading):
                 report_sensor_error(reading)
+                if ui is not None:
+                    ui.round_rejected(ui_sensor_error_message(reading))
                 continue
             if is_resting(reading):
                 report_resting(reading)
+                if ui is not None:
+                    ui.round_rejected("Sensor was resting on the table, not held. Pick it up and "
+                                      "hold it, then press the button again. Not scored.")
                 continue
-            process_reading(reading, args.player, session_id, log, play_audio=not args.no_audio)
+            process_reading(reading, args.player, session_id, log, play_audio=not args.no_audio, ui=ui)
+            if ui is not None and args.mock:
+                time.sleep(config.UI_MOCK_PAUSE_S)      # let the reveal be seen between mock rounds
+        if ui_srv is not None and args.mock:
+            linger_for_ui(ui_srv)
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:
+        if ui_srv is not None:
+            ui_srv.stop()
         try:
             series = log.calibration_series(args.player, session_id)
             if series:
@@ -521,6 +552,41 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"   [error] could not read the calibration series: {exc}", file=sys.stderr)
         log.close()
     return 0
+
+
+def start_ui(args, session_id: str, log: SessionLog):
+    """--ui: create the live state and start the HTTP server. (None, None) without --ui.
+
+    If the server can't start (port taken, ...) the state is still returned so the
+    game runs exactly the same; nothing about the UI can stop a round.
+    """
+    if not getattr(args, "ui", False):
+        return None, None
+    state = ui_server.GameState()
+    state.session_started(args.player, args.round, session_id, mock=args.mock)
+    state.refresh_from_log(log)
+    srv = ui_server.UIServer(state, host=args.ui_host, port=args.ui_port)
+    if not srv.start():
+        return state, None
+    if srv.serving_frontend:
+        print(f"UI: open {srv.url} in a browser (live state at {srv.url}/api/state)")
+    else:
+        print(f"UI: state at {srv.url}/api/state; no frontend/dist yet, so run the dev server: "
+              "cd frontend && npm run dev (or npm run build once to serve it from here)")
+    return state, srv
+
+
+def linger_for_ui(srv) -> None:
+    """--mock --ui: the simulated rounds are done; keep serving the UI until Ctrl+C."""
+    print(f"Mock rounds finished. The UI stays up at {srv.url} (Ctrl+C to quit).")
+    while True:
+        time.sleep(3600)
+
+
+def ui_sensor_error_message(reading: dict) -> str:
+    code = reading.get("error") or "no_measurement"
+    detail = _SENSOR_ERRORS.get(code, "the Arduino reported no measurement")
+    return f"Sensor error ({code}): {detail}. Not scored."
 
 
 def _run_calibration(source: Iterator[str], selected_round: int) -> int:

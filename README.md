@@ -212,13 +212,27 @@ python pi/main.py --leaderboard
 ```
 Opening the port can reset the board, so the Pi waits 2 s before it starts listening. To switch players, stop with Ctrl+C and restart with a new `--player`. Each run gets its own session id. Rows go to `data/sessions.db`.
 
-Other flags: `--round {1,2}` (default 1), `--calibrate` (Round 2 raw values only, see below), `--baud`, `--db PATH`, `--no-audio`.
+Other flags: `--round {1,2}` (default 1), `--calibrate` (Round 2 raw values only, see below), `--baud`, `--db PATH`, `--no-audio`, `--ui` (live browser UI, see below).
 
 ### Run without hardware
 ```bash
 python pi/main.py --mock --player Tester --rounds 4 --seed 1
 ```
 `--mock` sends the Pi JSON lines in the same format the Arduino would print. The simulated player starts overconfident and recalibrates, with the odd false start. `--mock --round 2` simulates Steady Hands holds instead (with the odd accelerometer read error, which is reported and not scored), and `--mock --calibrate` exercises the calibration printout. If `ELEVENLABS_API_KEY` isn't set, this also exercises the fallback path. Add `--no-audio` for silent runs and `--mock-delay 0` for fast ones.
+
+### Live browser UI
+`--ui` shows the game in a browser while you play: idle screen, the round in progress, the locked claim (Round 5 sends it before measuring; Rounds 1 and 2 reveal it with the result), the reveal (claim, reality, gap, tier, the narrator's line, the raw measurement) and the leaderboard and calibration curve from `data/sessions.db`.
+
+```bash
+# once per machine (needs Node 20.19+): build the frontend so Python can serve it
+cd frontend && npm install && npm run build && cd ..
+
+python pi/main.py --port /dev/ttyACM0 --player Saim --ui     # then open http://localhost:8765
+python pi/main.py --mock --player Tester --ui                # simulated rounds; stays up until Ctrl+C
+```
+`pi/ui_server.py` (stdlib only) runs in a background thread: `GET /api/state` is the current state as JSON, `GET /api/events` pushes it on every change (Server-Sent Events), and `/` serves `frontend/dist`, so the venue needs no Node. A UI problem is reported once and never stops a round; if the port is taken the game runs without the UI. Flags: `--ui-port` (default 8765), `--ui-host` (default 127.0.0.1; `0.0.0.0` to open it from another device on the network). Timings (how long the reveal stays up, when it falls back to the idle screen) are `UI_*` in `pi/config.py`.
+
+To work on the frontend, run the Python side with `--ui` and `cd frontend && npm run dev`; Vite proxies `/api` to port 8765 (`DELULU_API=http://host:port npm run dev` for another address). Add `?mock=1` to the URL (or set `VITE_USE_MOCK=1`) for the built-in simulator without any backend.
 
 ## Tests
 ```bash
@@ -238,7 +252,8 @@ delulu-detector/
 ├── .env.example
 ├── arduino/delulu_gauntlet/delulu_gauntlet.ino
 ├── pi/
-│   ├── main.py                     # serial listener + main loop (--port, --player, --round, --calibrate, --mock)
+│   ├── main.py                     # serial listener + main loop (--port, --player, --round, --calibrate, --mock, --ui)
+│   ├── ui_server.py                # live state for the browser UI (/api/state, /api/events, serves frontend/dist)
 │   ├── config.py                   # every tunable number (ms / mg bounds, tiers, timeout, paths)
 │   ├── scoring.py
 │   ├── elevenlabs_client.py        # verdict lines, fallback lines, TTS with a 3 s budget
@@ -246,6 +261,7 @@ delulu-detector/
 │   ├── session_log.py
 │   ├── requirements.txt
 │   └── tests/
+├── frontend/                       # React + Vite browser UI (npm run dev / npm run build)
 ├── data/                           # sessions.db is created here (gitignored)
 ├── docs/pitch_script.md
 └── assets/                         # fallback mp3s go here (generate with pi/make_fallbacks.py, see "Narrator")

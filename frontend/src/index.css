@@ -1,0 +1,154 @@
+@import "tailwindcss";
+
+@theme {
+  /* surfaces */
+  --color-void: #0a0a0f;
+  --color-surface: #14131c;
+  --color-surface-2: #1c1a26;
+
+  /* ink */
+  --color-ink: #f5f4f0;
+  --color-ink-dim: #8b899a;
+  --color-ink-faint: #4d4b5c;
+
+  /* fixed roles: claim vs reality, always labeled, never used interchangeably */
+  --color-claim: #22e5ff;
+  --color-reality: #b45cff;
+
+  /* status scale (gap severity) - reserved, always paired with a number/verdict */
+  --color-good: #22c55e;
+  --color-warning: #eab308;
+  --color-serious: #f97316;
+  --color-critical: #ef233c;
+
+  --font-display: "Bungee", system-ui, sans-serif;
+  --font-game: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-game);
+  overflow: hidden;
+  cursor: none;
+}
+
+/* Faint scanline texture only — no blend mode, no vignette. A blended
+   vignette here measurably tanked text contrast (verified against a booth
+   display's "readable from a few feet away" requirement), so this stays
+   a plain, low-opacity overlay that can never darken content underneath. */
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.02) 0px,
+    rgba(255, 255, 255, 0.02) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+@keyframes drift {
+  from { background-position: 0 0; }
+  to { background-position: 200px 200px; }
+}
+
+.void-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  animation: drift 18s linear infinite;
+}
+
+::selection {
+  background: var(--color-claim);
+  color: var(--color-void);
+}
+
+/* Mount-triggered enter animations, in plain CSS. A JS animation library's
+   declarative initial->animate transition silently never fired in this
+   environment (verified with the simplest possible case — no console error,
+   no visible cause), so anything that gates visibility (the reveal's verdict
+   text, most of all) uses CSS keyframes instead: they replay automatically
+   whenever a fresh element is inserted, no JS coordination required. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.anim-fade-in {
+  animation: fade-in 0.4s ease-out both;
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.anim-fade-in-up {
+  animation: fade-in-up 0.4s ease-out both;
+}
+
+@keyframes fade-scale-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+.anim-fade-scale-in {
+  animation: fade-scale-in 0.35s ease-out both;
+}
+
+@keyframes stamp-in {
+  0% { opacity: 0; transform: scale(1.6) rotate(-8deg); }
+  70% { opacity: 1; transform: scale(0.96) rotate(-1deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-2deg); }
+}
+.anim-stamp-in {
+  animation: stamp-in 0.5s cubic-bezier(0.2, 0.8, 0.3, 1.1) both;
+  animation-delay: 0.45s;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.anim-pop-in {
+  animation: pop-in 0.35s ease-out both;
+  animation-delay: 0.2s;
+}
+
+@keyframes flash-fade {
+  from { opacity: 0.5; }
+  to { opacity: 0; }
+}
+.anim-flash {
+  animation: flash-fade 0.5s ease-out both;
+}
+
+@keyframes dot-pop-in {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+.chart-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dot-pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes shake {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(calc(var(--shake-amp, 0px) * -1)); }
+  40% { transform: translateX(var(--shake-amp, 0px)); }
+  60% { transform: translateX(calc(var(--shake-amp, 0px) * -0.6)); }
+  80% { transform: translateX(calc(var(--shake-amp, 0px) * 0.3)); }
+  100% { transform: translateX(0); }
+}
+.anim-shake {
+  animation: shake 0.5s ease-out both;
+}

@@ -116,3 +116,14 @@ FALLBACK_AUDIO = ASSETS_DIR / "fallback_verdict.mp3"
 TTS_OUTPUT_DIR = REPO_ROOT / "data" / "tts"
 # Command used to play mp3s. Empty = auto-detect mpg123 / ffplay / mpv / cvlc.
 AUDIO_PLAYER = os.environ.get("DELULU_AUDIO_PLAYER", "").strip()
+
+# --------------------------------------------------------------------------
+# Browser UI (python pi/main.py --ui): live game state for frontend/
+# --------------------------------------------------------------------------
+UI_HOST = os.environ.get("DELULU_UI_HOST", "127.0.0.1")   # 0.0.0.0 to show it on another device
+UI_PORT = int(_env_float("DELULU_UI_PORT", 8765))
+UI_STATIC_DIR = REPO_ROOT / "frontend" / "dist"            # `npm run build` output; served at /
+UI_REVEAL_HOLD_S = 15.0    # keep the result on screen this long (unless the next round starts sooner)
+UI_IDLE_AFTER_S = 90.0     # no activity for this long while armed -> back to the idle/attract screen
+UI_HISTORY_LIMIT = 300     # most recent logged rounds sent to the browser (leaderboard + curve)
+UI_MOCK_PAUSE_S = 5.0      # --mock --ui: pause after each result so the reveal can be seen
