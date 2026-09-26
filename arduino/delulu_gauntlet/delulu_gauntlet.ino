@@ -53,7 +53,8 @@
  *   {"type":"dial","value":57}
  *   Smoothed, sent when the value changes by 1 or more (with a little hysteresis so it doesn't
  *   flicker between two values), at most every DIAL_REPORT_MS, and once after boot, after every
- *   round and after every command so the Pi always has the current value.
+ *   round and after every command so the Pi always has the current value. The claim that locks
+ *   is this same smoothed value, so the number shown at rest is the number that locks.
  */
 
 #include <Wire.h>
@@ -177,21 +178,14 @@ bool confirmedPress(unsigned long &firstAt) {
   return true;
 }
 
-int readClaim() {
-  long raw = 0;
-  for (int i = 0; i < 8; i++) {           // small average to calm the pot
-    raw += analogRead(DIAL_PIN);
-  }
-  raw /= 8;
-  long claim = map(raw, 0, DIAL_ADC_MAX, 0, 100);
-  return (int)constrain(claim, 0, 100);
-}
-
-// ============================ Live dial ============================
-// Between rounds only. Smoothed in fixed point (ADC count * 256), reported in the
-// same 0-100 steps as readClaim() so the value shown matches the claim that locks.
+// ============================ Dial (claim) ============================
+// One value is both what the browser shows ({"type":"dial"}) and what locks as the claim
+// (readClaim()), so they can never disagree: the pot, smoothed in fixed point (ADC count
+// * 256), mapped to 0-100 (floor, like map()), with a little hysteresis so it doesn't
+// flicker between two neighbours. It is only updated between rounds (updateLiveDial()).
 long dialSmooth = -1;                // -1 = not primed yet
-int dialReported = -1;
+int dialValue = -1;                  // the claim: shown live and locked by readClaim()
+int dialReported = -1;               // last value sent to the Pi
 bool dialForce = true;               // send the current value even if it didn't change
 unsigned long dialSampleAt = 0;
 unsigned long dialReportAt = 0;
@@ -206,42 +200,76 @@ void printDial(int value) {
   Serial.println(F("}"));
 }
 
-void updateLiveDial() {
-  const unsigned long now = millis();
-  if (dialSmooth < 0 || now - dialSampleAt >= DIAL_SAMPLE_MS) {
-    dialSampleAt = now;
-    const long sample = (long)analogRead(DIAL_PIN) * 256L;
-    if (dialSmooth < 0) {
-      dialSmooth = sample;
-    } else {
-      dialSmooth += (sample - dialSmooth) / DIAL_SMOOTH_DIV;
-    }
-  }
-  if (now - dialReportAt < DIAL_REPORT_MS) {
-    return;
-  }
+// dialSmooth -> dialValue, with hysteresis around the current value.
+void dialTrack() {
   const long fullScale = (long)DIAL_ADC_MAX * 256L;
-  // Floor, like readClaim()'s map(). "+ DIAL_SMOOTH_DIV" undoes the smoothing's integer
-  // lag (always under DIAL_SMOOTH_DIV units), so the top of the pot still reaches 100.
+  // "+ DIAL_SMOOTH_DIV" undoes the smoothing's integer lag (always under DIAL_SMOOTH_DIV
+  // units), so the top of the pot still reaches 100.
   long tenths = (dialSmooth + DIAL_SMOOTH_DIV) * 1000L / fullScale;   // 0-1000
   tenths = constrain(tenths, 0L, 1000L);
   const int value = (int)(tenths / 10);
-  bool report = dialForce || dialReported < 0;
-  if (!report && value != dialReported) {
-    if (value == 0 || value == 100) {
-      report = true;                 // always reach the ends of the scale
-    } else if (value > dialReported) {
-      report = tenths >= (long)(dialReported + 1) * 10L + DIAL_HYST_TENTHS;
-    } else {
-      report = tenths < (long)dialReported * 10L - DIAL_HYST_TENTHS;
+  if (dialValue < 0 || value == dialValue || value == 0 || value == 100) {
+    dialValue = value;               // first value, no change, or the ends of the scale
+  } else if (value > dialValue) {
+    if (tenths >= (long)(dialValue + 1) * 10L + DIAL_HYST_TENTHS) {
+      dialValue = value;
     }
+  } else if (tenths < (long)dialValue * 10L - DIAL_HYST_TENTHS) {
+    dialValue = value;
   }
-  if (report) {
-    printDial(value);
-    dialReported = value;
+}
+
+// Restart the smoothing from a fresh 8-sample average (boot, and after each round, when
+// the knob may have moved while it wasn't sampled). Hysteresis still applies, so a knob
+// left alone keeps its value.
+void dialPrime() {
+  long raw = 0;
+  for (int i = 0; i < 8; i++) {
+    raw += analogRead(DIAL_PIN);
+  }
+  dialSmooth = raw * 256L / 8;
+  dialSampleAt = millis();
+  dialTrack();
+}
+
+void dialSample() {
+  if (dialSmooth < 0) {
+    dialPrime();
+    return;
+  }
+  const unsigned long now = millis();
+  if (now - dialSampleAt < DIAL_SAMPLE_MS) {
+    return;
+  }
+  dialSampleAt = now;
+  const long sample = (long)analogRead(DIAL_PIN) * 256L;
+  dialSmooth += (sample - dialSmooth) / DIAL_SMOOTH_DIV;
+  dialTrack();
+}
+
+// Called every loop() between rounds: sample, and report the value when it changed
+// (or a report was requested), at most every DIAL_REPORT_MS.
+void updateLiveDial() {
+  dialSample();
+  const unsigned long now = millis();
+  if (now - dialReportAt < DIAL_REPORT_MS) {
+    return;
+  }
+  if (dialForce || dialValue != dialReported) {
+    printDial(dialValue);
+    dialReported = dialValue;
     dialForce = false;
     dialReportAt = now;
   }
+}
+
+// The claim at the lock press: exactly the value the UI shows at rest (the live dial
+// reports every change within DIAL_REPORT_MS, and "locked" carries this value too).
+int readClaim() {
+  if (dialValue < 0) {
+    dialPrime();
+  }
+  return dialValue;
 }
 
 void printStatus(const char *state) {
@@ -737,5 +765,6 @@ void loop() {
   } else {
     playReflexRound(claim);
   }
-  dialRequestReport();               // back to setting a claim: send the current value
+  dialPrime();                       // back to setting a claim: catch up with the knob
+  dialRequestReport();               // and send the current value
 }

@@ -230,7 +230,11 @@ class RoundSelector:
 # Input sources
 # ---------------------------------------------------------------------------
 def serial_lines(port: str, baud: int, round_id: int = ROUND_REFLEX,
-                 serial_module=None) -> Iterator[str]:
+                 serial_module=None, on_open: Optional[Callable[[], None]] = None) -> Iterator[str]:
+    """Lines from the Arduino, reopening the port after an error.
+
+    on_open (--ui): called each time the port is (re)opened, before any line is read.
+    """
     if serial_module is None:
         import serial as serial_module  # pyserial; imported lazily so --mock works without it
     serial = serial_module
@@ -241,6 +245,8 @@ def serial_lines(port: str, baud: int, round_id: int = ROUND_REFLEX,
                 print(f"Opened {port} @ {baud} baud; waiting {config.SERIAL_OPEN_SETTLE_S}s for the Uno to reset...")
                 time.sleep(config.SERIAL_OPEN_SETTLE_S)
                 ser.reset_input_buffer()
+                if on_open is not None:
+                    on_open()
                 selector = RoundSelector(round_id)
                 ser.write(selector.start())
                 print(f"Selected Round {round_id} ({config.ROUND_NAMES[round_id]}). "
@@ -541,10 +547,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             print_leaderboard(log)
         return 0
 
+    ui = None                                        # set by start_ui() below
+
+    def _on_serial_open() -> None:
+        # (Re)connected: the board may have been swapped or reflashed, so drop the old dial value.
+        if ui is not None:
+            ui.serial_opened()
+
     # --mock --ui also simulates the knob turning (dial lines); plain --mock output is unchanged.
     mock_extra = {"dial_step_s": config.UI_MOCK_DIAL_STEP_S} if (args.ui and not args.calibrate) else {}
     source = (mock_lines(args.rounds, args.seed, args.mock_delay, args.round, **mock_extra) if args.mock
-              else serial_lines(args.port, args.baud, args.round))
+              else serial_lines(args.port, args.baud, args.round, on_open=_on_serial_open))
 
     if args.calibrate and args.ui:
         print("   (--ui is not used with --calibrate; ignored)")

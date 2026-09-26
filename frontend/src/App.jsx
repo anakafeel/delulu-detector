@@ -5,6 +5,7 @@ import ActiveRound from './components/ActiveRound'
 import RevealMoment from './components/RevealMoment'
 import Leaderboard from './components/Leaderboard'
 import CalibrationCurve from './components/CalibrationCurve'
+import ClaimAnnouncer from './components/ClaimAnnouncer'
 
 const CONNECTION_LABEL = { live: 'Live', mock: 'Mock', offline: 'Offline' }
 
@@ -58,6 +59,7 @@ export default function App() {
           >
             <Stage state={state} />
           </div>
+          <ClaimAnnouncer screen={state.screen} liveClaim={state.liveClaim} />
           {state.notice && state.screen === 'predicting' && (
             <p className="anim-fade-in absolute inset-x-6 bottom-6 rounded-md border border-critical/60 bg-surface px-4 py-2 text-center font-game text-sm text-critical">
               {state.notice.message}
@@ -68,7 +70,7 @@ export default function App() {
         <aside className="flex flex-col gap-5 overflow-y-auto rounded-2xl border border-ink-faint/25 bg-surface/60 p-5">
           <Leaderboard history={state.history} />
           <div className="border-t border-ink-faint/20 pt-5">
-            <CalibrationCurve state={state} />
+            <CalibrationCurve player={state.player} history={state.history} />
           </div>
         </aside>
       </div>

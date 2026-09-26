@@ -1,4 +1,6 @@
 import { motion } from 'motion/react'
+import { useSettledValue } from '../hooks/useSettledValue'
+import { ANNOUNCE_SETTLE_MS } from './ClaimAnnouncer'
 
 const SIZE = 280
 const STROKE = 16
@@ -8,12 +10,14 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 // Covers both the 'predicting' (dial turning) and 'performing' (challenge
 // happening, no more claim input) phases of a round.
 export default function ActiveRound({ screen, activeRound, player, liveClaim }) {
-  if (!activeRound) return null
-
   // The claim is live from the dial ({"type":"dial"}); unknown only with an older sketch.
   const hasClaim = liveClaim !== null && liveClaim !== undefined
   const value = hasClaim ? liveClaim : 0
   const isPerforming = screen === 'performing'
+  // Accessible name for the ring: the settled value, not every step of the knob.
+  const labelClaim = useSettledValue(hasClaim ? value : null, isPerforming ? 0 : ANNOUNCE_SETTLE_MS)
+
+  if (!activeRound) return null
   const dialColor = isPerforming ? 'var(--color-reality)' : 'var(--color-claim)'
   const offset = CIRCUMFERENCE * (1 - value / 100)
 
@@ -27,8 +31,17 @@ export default function ActiveRound({ screen, activeRound, player, liveClaim }) 
 
       <p className="font-game text-ink-dim">{activeRound.prompt}</p>
 
-      <div className="relative" style={{ width: SIZE, height: SIZE }}>
-        <svg width={SIZE} height={SIZE} className="-rotate-90">
+      <div
+        className="relative"
+        style={{ width: SIZE, height: SIZE }}
+        role="img"
+        aria-label={
+          labelClaim === null
+            ? 'Claim: not known yet'
+            : `Claim: ${labelClaim} out of 100${isPerforming ? ', locked' : ''}`
+        }
+      >
+        <svg width={SIZE} height={SIZE} className="-rotate-90" aria-hidden="true">
           <circle
             cx={SIZE / 2}
             cy={SIZE / 2}
@@ -52,7 +65,7 @@ export default function ActiveRound({ screen, activeRound, player, liveClaim }) 
           />
         </svg>
 
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center" aria-hidden="true">
           <span className="font-game text-7xl font-bold tabular-nums text-ink">{hasClaim ? value : '?'}</span>
           {isPerforming && (
             <motion.span

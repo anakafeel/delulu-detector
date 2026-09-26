@@ -38,7 +38,7 @@ At boot the sketch prints one extra status line naming the accelerometer it foun
 
 This is the PRD's `{claim, actual, round_id}` plus a few extra fields. `round_id` is the round **type** (1 = Reflex, 2 = Steady Hands). `seq` counts attempts since the Arduino booted. The Pi keeps its own per-player round numbers. The Pi ignores `status` lines and anything that isn't valid JSON, like boot noise or half-lines.
 
-Live dial (for the browser UI only): while it waits for the lock press, the sketch also prints `{"type":"dial","value":57}`, the knob position on the same 0-100 scale as the claim. It is smoothed, sent only when the value changes by 1 or more (with a little hysteresis so it doesn't flicker), at most every 100 ms, plus once after boot, after every round and after every command. The `locked` status line carries the claim it just read: `{"type":"status","state":"locked","claim":72}`. Both are additions: the Pi never prints dial lines, and `--calibrate` and the scoring ignore them. The Pi also works with an older sketch that doesn't send them (the UI then shows `?` until the result).
+Live dial (for the browser UI only): while it waits for the lock press, the sketch also prints `{"type":"dial","value":57}`, the knob position on the same 0-100 scale as the claim. It is smoothed, sent only when the value changes by 1 or more (with a little hysteresis so it doesn't flicker), at most every 100 ms, plus once after boot, after every round and after every command. The claim that locks at the press is this same smoothed value, so the number on screen at rest is always the number that locks. The `locked` status line carries the claim it just read: `{"type":"status","state":"locked","claim":72}`. Both are additions: the Pi never prints dial lines, and `--calibrate` and the scoring ignore them. The Pi also works with an older sketch that doesn't send them (the UI then shows `?` until the result).
 
 ### Scoring
 - Reaction time to performance (0-100): **150 ms or faster = 100, 600 ms or slower = 0**, linear in between, clamped. You can change this in `pi/config.py` (`REFLEX_FAST_MS`, `REFLEX_SLOW_MS`).
@@ -232,7 +232,7 @@ cd frontend && npm install && npm run build && cd ..
 python pi/main.py --port /dev/ttyACM0 --player Saim --ui     # then open http://localhost:8765
 python pi/main.py --mock --player Tester --ui                # simulated rounds (and knob turns); stays up until Ctrl+C
 ```
-`pi/ui_server.py` (stdlib only) runs in a background thread: `GET /api/state` is the current state as JSON, `GET /api/events` pushes it on every change (Server-Sent Events), and `/` serves `frontend/dist`, so the venue needs no Node. A UI problem is reported once and never stops a round; if the port is taken the game runs without the UI. Flags: `--ui-port` (default 8765), `--ui-host` (default 127.0.0.1; `0.0.0.0` to open it from another device on the network). Timings (how long the reveal stays up, when it falls back to the idle screen) are `UI_*` in `pi/config.py`.
+`pi/ui_server.py` (stdlib only) runs in a background thread: `GET /api/state` is the current state as JSON, `GET /api/events` pushes it on every change (Server-Sent Events; while the knob turns only a small `event: dial` with `{"liveClaim": N}` is pushed, not the whole state with history), and `/` serves `frontend/dist`, so the venue needs no Node. A UI problem is reported once and never stops a round; if the port is taken the game runs without the UI. Flags: `--ui-port` (default 8765), `--ui-host` (default 127.0.0.1; `0.0.0.0` to open it from another device on the network). Timings (how long the reveal stays up, when it falls back to the idle screen) are `UI_*` in `pi/config.py`.
 
 To work on the frontend, run the Python side with `--ui` and `cd frontend && npm run dev`; Vite proxies `/api` to port 8765 (`DELULU_API=http://host:port npm run dev` for another address). Add `?mock=1` to the URL (or set `VITE_USE_MOCK=1`) for the built-in simulator without any backend.
 
@@ -243,13 +243,13 @@ python -m pytest pi/tests -q
 ```
 The tests cover the ms-to-performance and mg-to-performance mappings (bounds, linearity, clamping), gap, score, tiers, false start and timeout handling (including the claim-0 case), the SQLite log (fields, per-player round numbering, leaderboard and calibration series across rounds, the schema v2 migration of old `sessions.db` files), serial line parsing for both rounds, the round selection line and its ack/resend logic (with a fake serial port), `--mock` and `--calibrate` for Round 2, verdict text for every tier of both rounds (word limit, at least 4 lines per key, no back-to-back repeats), the TTS time budget and which fallback plays when TTS fails or is too slow (with a faked network), `make_fallbacks.py` (dry run, skip/force, the faked HTTP call, errors) and the main loop surviving a failed round. They never call ElevenLabs.
 
-CI (`.github/workflows/ci.yml`) runs these tests and compiles the sketch for both `arduino:avr:uno` and `arduino:renesas_uno:unor4wifi` on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs these tests, compiles the sketch for both `arduino:avr:uno` and `arduino:renesas_uno:unor4wifi`, and builds and lints the frontend on every push and pull request.
 
 ## Repo layout
 ```
 delulu-detector/
 ├── README.md
-├── .github/workflows/ci.yml        # tests + sketch compile for both boards
+├── .github/workflows/ci.yml        # tests, sketch compile for both boards, frontend build + lint
 ├── LICENSE                         # MIT
 ├── .env.example
 ├── arduino/delulu_gauntlet/delulu_gauntlet.ino

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import { currentOrLastPlayer, playerSeries } from '../data/deriveStats'
 import { severityFor, SEVERITY_LEVELS } from '../data/severity'
 import { useMeasuredWidth } from '../hooks/useMeasuredWidth'
@@ -12,13 +12,15 @@ const GRID_VALUES = [0, 50, 100]
 // "funny toy" -> "measurable effect." No hover/tooltip is possible on this
 // passive booth display (see the dataviz skill's interaction.md), so every
 // point's value is labeled directly rather than gated behind a tooltip.
-export default function CalibrationCurve({ state }) {
+// Takes only what it plots (not the whole state) and is memoized, so live dial
+// updates don't re-render the chart.
+function CalibrationCurve({ player: currentPlayer, history }) {
   const [containerRef, W] = useMeasuredWidth(480)
   const CHART_W = W - PAD.left - PAD.right
   const CHART_H = H - PAD.top - PAD.bottom
 
-  const player = currentOrLastPlayer(state)
-  const series = playerSeries(state.history, player)
+  const player = currentOrLastPlayer({ player: currentPlayer, history })
+  const series = useMemo(() => playerSeries(history, player), [history, player])
 
   const points = series.map((r, i) => ({
     x: PAD.left + (series.length === 1 ? CHART_W / 2 : (i / (series.length - 1)) * CHART_W),
@@ -148,3 +150,5 @@ export default function CalibrationCurve({ state }) {
     </div>
   )
 }
+
+export default memo(CalibrationCurve)

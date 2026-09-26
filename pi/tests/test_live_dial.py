@@ -1,5 +1,7 @@
 """Live dial ({"type":"dial","value":N}): parsing, other parsers ignoring it, UI state, main loop."""
+import itertools
 import json
+import types
 
 import pytest
 
@@ -107,13 +109,22 @@ def test_dial_clamps_and_ignores_garbage(armed, capsys):
     json.dumps(armed.snapshot(), allow_nan=False)
 
 
-def test_unchanged_dial_value_does_not_bump_the_version(armed):
+def test_turning_the_knob_on_the_claim_screen_does_not_bump_the_version(armed):
+    # Only the number moves: the event stream sends it as a small `dial` event instead.
     armed.dial(40)
     v = armed.snapshot()["version"]
     armed.dial(40)
-    assert armed.snapshot()["version"] == v
     armed.dial(41)
-    assert armed.snapshot()["version"] == v + 1
+    snap = armed.snapshot()
+    assert snap["version"] == v and snap["liveClaim"] == 41
+
+
+def test_turning_the_knob_to_a_new_screen_bumps_the_version(armed, clock):
+    armed.dial(30)
+    clock.t += 61                                    # idle timeout
+    v = armed.snapshot()["version"]
+    armed.dial(31)                                   # wakes the idle screen: a real change
+    assert armed.snapshot()["version"] > v
 
 
 def test_turning_the_knob_wakes_the_idle_screen(armed, clock):
@@ -134,7 +145,9 @@ def test_dial_before_the_board_is_armed_does_not_leave_idle(clock):
     assert s.snapshot()["screen"] == "idle"
     s.on_status({"type": "status", "state": "mode", "round_id": 1})
     snap = s.snapshot()
-    assert snap["screen"] == "predicting" and snap["liveClaim"] == 20
+    assert snap["screen"] == "predicting" and snap["liveClaim"] is None   # cleared by the ack
+    s.dial(20)                                       # the sketch re-sends it right after the ack
+    assert s.snapshot()["liveClaim"] == 20
 
 
 def test_locked_uses_the_claim_on_the_status_line(armed):
@@ -185,6 +198,90 @@ def test_dial_does_not_disturb_a_round_in_progress(armed):
     armed.dial(90)                                    # can't happen with the sketch, but be safe
     snap = armed.snapshot()
     assert snap["screen"] == "performing" and snap["liveClaim"] == 50
+
+
+@pytest.mark.parametrize("reset", [
+    pytest.param(lambda s: s.on_status({"type": "status", "state": "ready", "accel": "none"}),
+                 id="boot-banner"),
+    pytest.param(lambda s: s.serial_opened(), id="serial-reconnect"),
+    pytest.param(lambda s: s.session_started("Saim", 2, "sess2"), id="round-select"),
+    pytest.param(lambda s: s.on_status({"type": "status", "state": "mode", "round_id": 1}),
+                 id="mode-ack"),
+])
+def test_stale_dial_value_is_cleared(armed, reset):
+    armed.dial(66)
+    reset(armed)
+    assert armed.dial_value is None
+    # An older sketch answers from here on (no dial lines): "?" again, not the old 66.
+    armed.on_status({"type": "status", "state": "mode", "round_id": armed.selected_round})
+    assert armed.snapshot()["liveClaim"] is None
+    armed.on_status({"type": "status", "state": "locked"})
+    snap = armed.snapshot()
+    assert snap["screen"] == "performing" and snap["liveClaim"] is None
+
+
+def test_serial_reopen_disarms_like_a_board_reset(armed):
+    armed.serial_opened()
+    snap = armed.snapshot()
+    assert snap["board"] == {"armed": False, "stage": "connecting"} and snap["screen"] == "idle"
+
+
+def test_serial_lines_calls_on_open_each_time_the_port_opens(monkeypatch):
+    monkeypatch.setattr(config, "SERIAL_OPEN_SETTLE_S", 0)
+    monkeypatch.setattr(main.time, "sleep", lambda s: None)
+    opened = []
+
+    class SerialException(Exception):
+        pass
+
+    class Port:
+        def __init__(self):
+            self.lines = [b'{"type":"status","state":"mode","round_id":1}\n']
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def reset_input_buffer(self):
+            pass
+
+        def write(self, data):
+            pass
+
+        def readline(self):
+            if not self.lines:
+                raise SerialException("unplugged")
+            return self.lines.pop(0)
+
+    fake = types.SimpleNamespace(Serial=lambda *a, **k: Port(), SerialException=SerialException)
+    gen = main.serial_lines("/dev/fake", 115200, 1, serial_module=fake,
+                            on_open=lambda: opened.append(True))
+    list(itertools.islice(gen, 2))                   # one line, unplug, reopen, one line
+    assert opened == [True, True]
+
+
+def test_main_clears_the_dial_when_the_serial_port_reopens(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_serial(port, baud, round_id, on_open=None):
+        on_open()
+        yield dial_line(40)
+        on_open()                                    # reconnected (maybe a different sketch)
+        yield '{"type":"status","state":"mode","round_id":1}'
+
+    monkeypatch.setattr(main, "serial_lines", fake_serial)
+    real = ui_server.GameState.serial_opened
+
+    def spy(self):
+        real(self)
+        calls.append(self.dial_value)
+
+    monkeypatch.setattr(ui_server.GameState, "serial_opened", spy)
+    main.main(["--port", "/dev/fake", "--no-audio", "--db", str(tmp_path / "s.db"),
+               "--ui", "--ui-host", "127.0.0.1", "--ui-port", "0"])
+    assert calls == [None, None]
 
 
 # ------------------------------------------------------------------ mock

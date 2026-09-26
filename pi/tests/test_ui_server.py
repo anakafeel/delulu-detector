@@ -218,12 +218,33 @@ def test_version_bumps_on_change_only(state):
     assert state.snapshot()["version"] == v + 1
 
 
-def test_wait_for_change_returns_new_json_or_none(state):
-    first = state.snapshot_json()
-    assert state.wait_for_change(None, 0.1) == first
-    assert state.wait_for_change(first, 0.05) is None
+def test_next_event_returns_new_state_or_none(state):
+    kind, data, cursor = state.next_event(None, 0.1)
+    assert kind == "state" and data == state.snapshot_json()
+    assert state.next_event(cursor, 0.05) is None
     state.on_status(status("mode", round_id=1))
-    assert json.loads(state.wait_for_change(first, 0.5))["screen"] == "predicting"
+    kind, data, cursor = state.next_event(cursor, 0.5)
+    assert kind == "state" and json.loads(data)["screen"] == "predicting"
+
+
+def test_next_event_sends_knob_turns_as_small_dial_events(state):
+    state.on_status(status("mode", round_id=1))
+    _, _, cursor = state.next_event(None, 0.1)
+    state.dial(41)
+    kind, data, cursor = state.next_event(cursor, 0.5)
+    assert kind == "dial" and json.loads(data) == {"liveClaim": 41}
+    assert state.next_event(cursor, 0.05) is None
+    state.on_status(status("locked", claim=41))     # a real change: the full state again
+    kind, data, _ = state.next_event(cursor, 0.5)
+    assert kind == "state" and json.loads(data)["screen"] == "performing"
+
+
+def test_next_event_catches_time_based_screen_changes(state, clock):
+    state.on_status(status("mode", round_id=1))
+    _, _, cursor = state.next_event(None, 0.1)
+    clock.t += 61                                    # idle timeout, no event method called
+    kind, data, _ = state.next_event(cursor, 0.1)
+    assert kind == "state" and json.loads(data)["screen"] == "idle"
 
 
 # ------------------------------------------------------------------------ HTTP
@@ -289,8 +310,9 @@ def test_without_dist_shows_instructions(state, tmp_path):
         srv.stop()
 
 
-def _read_sse_event(fp):
-    data = []
+def _read_sse(fp):
+    """One SSE event -> (event name or None, raw data str)."""
+    data, name = [], None
     while True:
         line = fp.readline()
         if not line:
@@ -298,8 +320,16 @@ def _read_sse_event(fp):
         line = line.decode().rstrip("\r\n")
         if line.startswith("data: "):
             data.append(line[6:])
+        elif line.startswith("event: "):
+            name = line[7:]
         elif line == "" and data:
-            return json.loads("\n".join(data))
+            return name, "\n".join(data)
+
+
+def _read_sse_event(fp):
+    name, data = _read_sse(fp)
+    assert name is None                              # a full-state message
+    return json.loads(data)
 
 
 def test_sse_pushes_state_on_every_change(server, state):
@@ -313,6 +343,45 @@ def test_sse_pushes_state_on_every_change(server, state):
     assert _read_sse_event(resp)["screen"] == "predicting"
     state.on_status(status("locked"))
     assert _read_sse_event(resp)["screen"] == "performing"
+    conn.close()
+
+
+def test_sse_dial_updates_do_not_resend_history(server, state, clock):
+    for n in range(1, 31):                           # a real-sized history
+        state.round_result(score_reflex_round(50 + n % 40, 250 + n), "Saim", "sess-1", n)
+    state.on_status(status("ready"))
+    conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
+    conn.request("GET", "/api/events")
+    resp = conn.getresponse()
+    first = _read_sse_event(resp)
+    assert len(first["history"]) == 30 and first["screen"] == "reveal"
+    clock.t += 11                                    # past the reveal hold: claim screen
+    assert _read_sse_event(resp)["screen"] == "predicting"
+    state.dial(39)                                   # first turn after a reveal: phase change, full state
+    assert _read_sse_event(resp)["liveClaim"] == 39
+    sizes = []
+    for v in (40, 41, 42, 43):
+        state.dial(v)
+        name, data = _read_sse(resp)
+        assert name == "dial" and json.loads(data) == {"liveClaim": v}
+        assert "history" not in data and "leaderboard" not in data
+        sizes.append(len(data))
+    assert max(sizes) < 40                           # vs. the full state
+    full = state.snapshot()
+    assert full["liveClaim"] == 43 and len(full["history"]) == 30   # /api/state stays complete
+    state.on_status(status("locked", claim=43))
+    snap = _read_sse_event(resp)
+    assert snap["screen"] == "performing" and len(snap["history"]) == 30
+    conn.close()
+
+
+def test_api_state_includes_the_live_dial(server, state):
+    state.on_status(status("mode", round_id=1))
+    state.dial(64)
+    conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
+    conn.request("GET", "/api/state")
+    body = json.loads(conn.getresponse().read())
+    assert body["liveClaim"] == 64 and "history" in body and "leaderboard" in body
     conn.close()
 
 
