@@ -1,6 +1,6 @@
 /*
  * Delulu Detector - Round 1: Reflex Round
- * Arduino Uno sketch. Reads sensors and prints ONE JSON object per line over
+ * Arduino UNO R4 WiFi (also builds for a classic Uno) sketch. Reads sensors and prints ONE JSON object per line over
  * serial. No scoring or game logic lives here; the Raspberry Pi does all of it.
  *
  * Flow:
@@ -8,7 +8,8 @@
  *   2. Player presses the button -> claim is LOCKED (dial read at that instant).
  *   3. Random wait of RANDOM_DELAY_MIN_MS..RANDOM_DELAY_MAX_MS.
  *      Pressing during this wait = FALSE START (reported, round ends).
- *   4. CUE: LED on + buzzer beep.
+ *   4. CUE: onboard LED (pin 13) + full 12x8 LED matrix on the R4 WiFi
+ *      + optional buzzer beep. No external LED needed.
  *   5. Measure ms from cue to button press (or time out after REACTION_TIMEOUT_MS).
  *
  * Serial: 115200 baud, 8N1, newline-terminated JSON.
@@ -24,11 +25,12 @@
 // ----------------------------- Pin / config -------------------------------
 #define DIAL_PIN              A0     // Grove rotary angle sensor (SIG)
 #define BUTTON_PIN            2      // Grove button (SIG) or tactile button
-#define CUE_LED_PIN           4      // Cue LED (Grove LED socket or LED + 220R)
+#define CUE_LED_PIN           LED_BUILTIN  // onboard "L" LED, no wiring needed
+#define USE_BUZZER            1      // 0 if no buzzer is connected (harmless either way)
 #define BUZZER_PIN            6      // Grove buzzer / piezo (optional)
 #define RANDOM_SEED_PIN       A1     // leave UNCONNECTED (floating = noise seed)
 
-// Grove button module outputs HIGH when pressed -> 0.
+// Grove button module outputs HIGH when pressed -> 0 (our hardware: idles LOW, HIGH when pressed).
 // Plain tactile button wired pin->GND using INPUT_PULLUP -> 1.
 #define BUTTON_ACTIVE_LOW     0
 
@@ -38,10 +40,19 @@
 #define RANDOM_DELAY_MAX_MS   4000
 #define REACTION_TIMEOUT_MS   3000   // no press this long after cue = timeout
 #define DEBOUNCE_MS           30
+#define RELEASE_SETTLE_MS     80     // button must stay released this long after a press
+#define PRESS_CONFIRM_MS      10     // a press must stay down this long to count (ignores contact flicker)
 #define BUZZER_FREQ_HZ        2000
 #define BUZZER_MS             120
 #define DIAL_ADC_MAX          1023   // raise/lower if your pot doesn't hit the rails
 // ---------------------------------------------------------------------------
+
+#if defined(ARDUINO_UNOR4_WIFI)
+#include "Arduino_LED_Matrix.h"
+ArduinoLEDMatrix matrix;
+const uint32_t MATRIX_ALL_ON[3]  = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
+const uint32_t MATRIX_ALL_OFF[3] = {0, 0, 0};
+#endif
 
 unsigned long seq = 0;
 
@@ -53,16 +64,34 @@ bool buttonPressed() {
 #endif
 }
 
-// Block until the button is released and has stayed released for DEBOUNCE_MS.
+// Block until the button is released and has stayed released for RELEASE_SETTLE_MS.
 void waitForRelease() {
   unsigned long releasedAt = millis();
   while (true) {
     if (buttonPressed()) {
       releasedAt = millis();
-    } else if (millis() - releasedAt >= DEBOUNCE_MS) {
+    } else if (millis() - releasedAt >= RELEASE_SETTLE_MS) {
       return;
     }
   }
+}
+
+// If the button reads pressed, confirm it stays pressed for PRESS_CONFIRM_MS.
+// Returns true for a real press and sets firstAt to the millis() of first contact,
+// so reaction time is measured from first contact, not from confirmation.
+// A flicker shorter than PRESS_CONFIRM_MS returns false.
+bool confirmedPress(unsigned long &firstAt) {
+  if (!buttonPressed()) {
+    return false;
+  }
+  unsigned long t0 = millis();
+  while (millis() - t0 < PRESS_CONFIRM_MS) {
+    if (!buttonPressed()) {
+      return false;
+    }
+  }
+  firstAt = t0;
+  return true;
 }
 
 int readClaim() {
@@ -103,12 +132,22 @@ void printResult(int claim, long actualMs, bool falseStart, bool timedOut) {
 
 void cueOn() {
   digitalWrite(CUE_LED_PIN, HIGH);
+#if defined(ARDUINO_UNOR4_WIFI)
+  matrix.loadFrame(MATRIX_ALL_ON);
+#endif
+#if USE_BUZZER
   tone(BUZZER_PIN, BUZZER_FREQ_HZ, BUZZER_MS);
+#endif
 }
 
 void cueOff() {
   digitalWrite(CUE_LED_PIN, LOW);
+#if defined(ARDUINO_UNOR4_WIFI)
+  matrix.loadFrame(MATRIX_ALL_OFF);
+#endif
+#if USE_BUZZER
   noTone(BUZZER_PIN);
+#endif
 }
 
 void setup() {
@@ -119,7 +158,12 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT);
 #endif
   pinMode(CUE_LED_PIN, OUTPUT);
+#if defined(ARDUINO_UNOR4_WIFI)
+  matrix.begin();
+#endif
+#if USE_BUZZER
   pinMode(BUZZER_PIN, OUTPUT);
+#endif
   cueOff();
   randomSeed(analogRead(RANDOM_SEED_PIN));
   printStatus("ready");
@@ -142,8 +186,14 @@ void loop() {
   // 3. Random wait; any press now is a false start.
   unsigned long waitMs = random(RANDOM_DELAY_MIN_MS, RANDOM_DELAY_MAX_MS + 1);
   unsigned long waitStart = millis();
+  unsigned long pressAt = 0;
   while (millis() - waitStart < waitMs) {
-    if (buttonPressed()) {
+    if (confirmedPress(pressAt)) {
+      Serial.print(F("{\"type\":\"status\",\"state\":\"false_start\",\"into_wait_ms\":"));
+      Serial.print(pressAt - waitStart);
+      Serial.print(F(",\"wait_ms\":"));
+      Serial.print(waitMs);
+      Serial.println(F("}"));
       printResult(claim, -1, true, false);
       waitForRelease();
       printStatus("ready");
@@ -157,7 +207,7 @@ void loop() {
   printStatus("cue");
 
   // 5. Measure reaction.
-  while (!buttonPressed()) {
+  while (!confirmedPress(pressAt)) {
     if (millis() - cueAt >= REACTION_TIMEOUT_MS) {
       cueOff();
       printResult(claim, -1, false, true);
@@ -165,7 +215,7 @@ void loop() {
       return;
     }
   }
-  unsigned long reactionMs = millis() - cueAt;
+  unsigned long reactionMs = pressAt - cueAt;
   cueOff();
   printResult(claim, (long)reactionMs, false, false);
   waitForRelease();
