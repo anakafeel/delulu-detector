@@ -28,3 +28,16 @@ assets/*.part
 # Generated narrator clips (python pi/make_fallbacks.py): regenerate on each
 # machine with your own ElevenLabs key instead of committing them.
 assets/*.mp3
+
+# Frontend (frontend/): dependencies and build output (npm run build -> frontend/dist,
+# served by `python pi/main.py --ui`; rebuild it on each machine instead of committing it)
+node_modules/
+dist/
+*.local
+
+# Local AI-tool artifacts: never commit
+.claude/
+.claude-flow/
+.claude*
+.swarm/
+ruvector.db
