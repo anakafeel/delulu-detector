@@ -1,7 +1,18 @@
 {
-  "duration": 21,
-  "maxStaticSec": 3,
+  "duration": 20.5,
+  "maxStaticSec": 2.5,
   "assertions": [
+    { "kind": "appearsBy", "selector": "#title", "bySec": 1.0 },
+    { "kind": "appearsBy", "selector": "#question", "bySec": 4.4 },
+    { "kind": "appearsBy", "selector": "#num-claim", "bySec": 9.6 },
+    { "kind": "appearsBy", "selector": "#verdict", "bySec": 13.4 },
+    { "kind": "before", "a": "#title", "b": "#question" },
+    { "kind": "before", "a": "#question", "b": "#verdict" },
+    { "kind": "staysInFrame", "selector": "#title" },
+    { "kind": "staysInFrame", "selector": "#question" },
+    { "kind": "staysInFrame", "selector": "#verdict" },
+    { "kind": "staysInFrame", "selector": "#num-claim" },
+    { "kind": "staysInFrame", "selector": "#num-comp" },
     { "kind": "keepsMoving", "withinSelector": "#root" }
   ]
 }
