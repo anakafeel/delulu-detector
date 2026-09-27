@@ -307,7 +307,7 @@ def score_reading(reading: dict) -> RoundResult:
         )
     if round_id in (ROUND_POKER, ROUND_STRAIGHT) and reading.get("composure") is not None:
         extra = {k: reading[k] for k in ("smile_frac", "face_frac", "frames", "fps",
-                                          "held_s", "first_smile_ms") if k in reading}
+                                          "held_s", "first_smile_ms", "presage_samples") if k in reading}
         return score_composure_round(round_id, reading["claim"], reading["composure"], extra)
     if round_id == ROUND_POKER:
         frac = reading.get("smile_frac")

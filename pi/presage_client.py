@@ -68,6 +68,7 @@ class PresageSession:
         self._window_note: str | None = None
         self._hold = False
         self._restarting = False
+        self.last_sample_count: int | None = None   # samples Presage classified in the last window
 
     def start(self) -> None:
         """Start the bridge and wait until the SDK has authorized the key.
@@ -132,6 +133,7 @@ class PresageSession:
             note = self._window_note
             self._window_note = None
             err = self._error
+        self.last_sample_count = len(samples)
         if not samples:
             raise PresageError(err or note or "Presage returned no composure sample for this window")
         return sum(samples) / len(samples)

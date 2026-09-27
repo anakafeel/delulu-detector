@@ -98,7 +98,7 @@ def test_live_smile_pct_matches_the_round_formula():
     feed = feed_with()
     feed.begin("measuring", 6.0)
     assert feed.public_state() == {"available": True, "mode": "measuring", "face": False,
-                                   "smiling": False, "smilePct": None}
+                                   "smiling": False, "smilePct": None, "remainingS": 6.0, "windowS": 6.0}
     assert feed.summary() == {"available": True, "mode": "measuring", "kind": "poker"}
     for obs, smiling in ((FACE, False), (SMILE, True), (NOFACE, False), (SMILE, True)):
         feed.offer("f", obs, smiling)
@@ -454,9 +454,10 @@ def test_fast_numbers_stay_out_of_the_snapshot(state):
     assert state.snapshot_json() == before         # the SSE snapshot didn't change...
     assert state.snapshot()["camera"] == {"available": True, "mode": "measuring", "kind": "poker"}
     assert state.snapshot(live=True)["camera"] == {"available": True, "mode": "measuring", "face": True,
-                                                   "smiling": True, "smilePct": 100}   # ...polling sees it
+                                                   "smiling": True, "smilePct": 100,
+                                                   "remainingS": 6.0, "windowS": 6.0}   # ...polling sees it
     assert json.loads(state.live_json()) == {"camera": {"mode": "measuring", "face": True,
-                                                        "smiling": True, "smilePct": 100}}
+                                                        "smiling": True, "smilePct": 100, "remainingS": 6.0, "windowS": 6.0}}
 
 
 def test_api_state_includes_the_live_numbers_for_polling(server, state):
@@ -467,7 +468,8 @@ def test_api_state_includes_the_live_numbers_for_polling(server, state):
     conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
     conn.request("GET", "/api/state")
     cam = json.loads(conn.getresponse().read())["camera"]
-    assert cam == {"available": True, "mode": "measuring", "face": True, "smiling": False, "smilePct": 0}
+    assert cam == {"available": True, "mode": "measuring", "face": True, "smiling": False, "smilePct": 0,
+                   "remainingS": 6.0, "windowS": 6.0}
 
 
 def read_sse(resp):
@@ -538,6 +540,7 @@ def test_mock_round5_has_no_camera_feed(monkeypatch, tmp_path):
 
 
 def test_real_camera_round5_with_ui_streams_the_measured_frames(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui_server.GameState, "player_named", lambda self: True)   # name typed
     """--round 5 --ui on 'hardware': fake serial claim line + fake camera, real feed and server."""
     monkeypatch.setattr(config, "UI_CAMERA_IDLE_PREVIEW", False)
     monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
@@ -594,3 +597,13 @@ def test_real_encoder_scales_mirrors_and_leaves_the_frame_alone():
     assert feed.wait_jpeg(0, 2.0)[1][:2] == b"\xff\xd8"
     ph = CameraFeed().placeholder()
     assert ph is not None and ph[:2] == b"\xff\xd8"
+
+
+def test_poker_live_state_counts_the_window_down():
+    feed = feed_with()
+    feed.begin("measuring", 6.0)
+    feed.offer("f", FACE, False, 2.5)
+    live = feed.live_state()
+    assert live["remainingS"] == 3.5 and live["windowS"] == 6.0
+    feed.end("measuring")
+    assert "remainingS" not in feed.live_state()

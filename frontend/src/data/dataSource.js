@@ -13,7 +13,7 @@
 // served by the Python server itself, so /api is same-origin there.
 // VITE_API_BASE (e.g. http://192.168.1.20:8765) points at a Pi elsewhere.
 import { toUiState } from './liveAdapter'
-import { previewEnabled, subscribePreview } from './previewSource'
+import { previewEnabled, setPreviewPlayer, subscribePreview } from './previewSource'
 
 export const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 const POLL_MS = 1000
@@ -42,6 +42,19 @@ function keepLiveCamera(prev, next) {
     return next
   }
   return { ...prev, ...next }
+}
+
+// Poker Face name entry: POST /api/player. Resolves to the name as the Pi will log it
+// (trimmed, at most 16 characters); rejects if the Pi didn't take it.
+export async function submitPlayerName(name) {
+  if (previewEnabled()) return setPreviewPlayer(name)
+  const r = await fetch(`${API_BASE}/api/player`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return (await r.json()).player
 }
 
 export function subscribe(callback) {

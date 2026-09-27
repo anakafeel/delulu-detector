@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'motion/react'
 import { API_BASE } from '../data/dataSource'
 
 const RETRY_MS = 3000
@@ -29,40 +28,25 @@ export default function CameraFeed({ camera, isPerforming }) {
     return () => clearTimeout(t)
   }, [failed])
 
-  const accent = isPerforming ? 'var(--color-reality)' : 'var(--color-claim)'
   let placeholder = null
   if (!available) placeholder = 'No camera feed (a face round with the webcam and --ui)'
   else if (failed) placeholder = 'Camera reconnecting...'
 
   return (
     <div className="absolute inset-0 bg-black">
-      <div
-        className="relative h-full w-full overflow-hidden"
-        style={{
-          boxShadow: placeholder ? 'none' : `inset 0 0 0 2px ${accent}`,
-        }}
-      >
+      {/* The phase frame (ActiveRound) is the border now: cyan claim, purple live read. */}
+      <div className="relative h-full w-full overflow-hidden">
         {current?.previewFrame ? (
           <PreviewFrame />
         ) : placeholder ? (
-          <div className="flex h-full items-center justify-center p-6 text-center font-game text-xs uppercase tracking-[0.25em] text-ink-faint">
+          <div className="flex h-full items-center justify-center p-6 text-center font-game text-data uppercase tracking-[0.2em] text-ink-dim">
             {placeholder}
           </div>
         ) : (
           <MjpegImage key={attempt} src={`${API_BASE}/api/camera.mjpg?v=${attempt}`} onError={() => setFailed(true)} />
         )}
-        {!placeholder && current?.mode === 'measuring' && (
-          <span className="absolute bottom-7 right-2 flex items-center gap-1.5 rounded bg-void/70 px-2 py-0.5 font-game text-[10px] uppercase tracking-[0.3em] text-ink">
-            <motion.span
-              className="h-1.5 w-1.5 rounded-full bg-critical"
-              animate={{ opacity: [1, 0.2, 1] }}
-              transition={{ duration: 0.8, repeat: Infinity }}
-            />
-            Rec
-          </span>
-        )}
       </div>
-      <div key={readoutKey(current, isPerforming)} className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center anim-fade-in">
+      <div key={readoutKey(current, isPerforming)} className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center anim-fade-in">
         <Readout camera={failed ? null : current} isPerforming={isPerforming} />
       </div>
     </div>
@@ -103,56 +87,61 @@ function readoutKey(camera, isPerforming) {
   if (!camera) return 'none'
   if (camera.mode === 'scoring') return 'scoring'
   if (isPerforming && camera.mode !== 'measuring' && camera.mode !== 'preview') return 'scoring'
-  if (camera.mode === 'measuring' && camera.kind !== 'straight' && (camera.composure == null)) return 'reading'
   return camera.mode || 'camera'
 }
 
 function Readout({ camera, isPerforming }) {
-  if (!camera) return <p className="h-6" />
+  if (!camera) return <p className="h-10" />
   if (camera.mode === 'scoring') return <LoadingReadout label="Reading the face" detail="Scoring" />
   // Claim locked, window already closed, reveal not up yet: don't fall through to an empty line.
   if (isPerforming && camera.mode !== 'measuring' && camera.mode !== 'preview') {
     return <LoadingReadout label="Scoring" />
   }
   if (camera.mode === 'measuring' && camera.kind === 'straight') return <StraightReadout camera={camera} />
-  if (camera.mode === 'measuring') {
-    const composure = camera.composure
-    if (composure === null || composure === undefined) return <LoadingReadout label="Reading the face" />
-    return (
-      <p className="h-6 font-game text-sm uppercase tracking-[0.3em] text-ink-dim">
-        Composure{' '}
-        <span className="text-lg font-bold tabular-nums text-reality">{Math.round(composure)}</span>
-      </p>
-    )
-  }
+  // Poker Face: the live composure is the big ring (ActiveRound); here, the time left.
+  if (camera.mode === 'measuring') return <WindowLeft remaining={camera.remainingS} total={camera.windowS} />
   if (camera.mode === 'preview') {
     return (
-      <p className={`h-6 font-game text-sm uppercase tracking-[0.3em] ${camera.face ? 'text-good' : 'text-warning'}`}>
+      <p className={`rounded-lg bg-void/80 px-4 py-1 font-game text-data uppercase tracking-[0.2em] ${camera.face ? 'text-good' : 'text-warning'}`}>
         {camera.face ? 'Face found' : 'No face: move into frame'}
       </p>
     )
   }
-  return <p className="h-6 font-game text-sm uppercase tracking-[0.3em] text-ink-faint">Camera starts with the round</p>
+  return <p className="rounded-lg bg-void/80 px-4 py-1 font-game text-data uppercase tracking-[0.2em] text-ink-dim">Camera starts with the round</p>
 }
 
 function LoadingReadout({ label, detail }) {
   return (
-    <p className="flex h-6 items-center gap-2 font-game text-sm uppercase tracking-[0.3em] text-ink-dim">
-      <span className="quiet-pulse inline-block h-1.5 w-1.5 rounded-full bg-reality" />
+    <p className="flex items-center gap-3 rounded-lg bg-void/80 px-4 py-1 font-game text-data uppercase tracking-[0.2em] text-ink-dim">
+      <span className="quiet-pulse inline-block h-3 w-3 rounded-full bg-reality" />
       {label}
       {detail ? <span className="text-ink-faint">· {detail}</span> : null}
     </p>
   )
 }
 
+// Seconds left in the measured window, as a number and a draining bar.
+function WindowLeft({ remaining, total }) {
+  if (typeof remaining !== 'number') return <LoadingReadout label="Reading your face" />
+  const frac = total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0
+  return (
+    <div className="flex w-[min(40rem,80%)] items-center gap-4 rounded-lg bg-void/80 px-4 py-2">
+      <div className="h-3 flex-1 overflow-hidden rounded-full bg-surface-2">
+        <div className="h-full rounded-full bg-reality" style={{ width: `${frac * 100}%`, transition: 'width 250ms linear' }} />
+      </div>
+      <span className="font-game text-data font-bold tabular-nums text-ink">{remaining.toFixed(1)} s</span>
+    </div>
+  )
+}
+
 // Straight Face: a neutral-face baseline, then a running timer until the face changes.
 function StraightReadout({ camera }) {
-  const cls = 'h-6 font-game text-sm uppercase tracking-[0.3em]'
+  const cls = 'rounded-lg bg-void/80 px-4 py-1 font-game text-data uppercase tracking-[0.2em]'
   if (typeof camera.composure === 'number') {
     return (
       <p className={`${cls} text-ink-dim`}>
         Composure{' '}
-        <span className="text-lg font-bold tabular-nums text-reality">{Math.round(camera.composure)}</span>
+        <span className="font-bold tabular-nums text-reality">{Math.round(camera.composure)}</span>
       </p>
     )
   }
@@ -161,7 +150,7 @@ function StraightReadout({ camera }) {
     return (
       <p className={`${cls} text-critical`}>
         {camera.trigger === 'smile' ? 'Smile' : 'Expression change'} at{' '}
-        <span className="text-lg font-bold tabular-nums">{at === null || at === undefined ? '--' : `${at.toFixed(1)} s`}</span>
+        <span className="font-bold tabular-nums">{at === null || at === undefined ? '--' : `${at.toFixed(1)} s`}</span>
       </p>
     )
   }
@@ -172,7 +161,7 @@ function StraightReadout({ camera }) {
   return (
     <p className={`${cls} text-ink-dim`}>
       Straight face{' '}
-      <span className={`text-lg font-bold tabular-nums ${hot ? 'text-warning' : 'text-reality'}`}>
+      <span className={`font-bold tabular-nums ${hot ? 'text-warning' : 'text-reality'}`}>
         {camera.heldS.toFixed(1)} s
       </span>
     </p>

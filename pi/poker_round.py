@@ -83,6 +83,7 @@ def _apply_presage(session: Optional[PresageSession], reading: dict) -> dict:
         reading["composure"] = None
         return reading
     reading["composure"] = value
+    reading["presage_samples"] = getattr(session, "last_sample_count", None)   # shown on the reveal
     reading["actual"] = value
     reading["unit"] = "composure"
     return reading

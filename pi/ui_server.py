@@ -21,12 +21,14 @@ UIServer
                           the camera's fast numbers, which are a small `event: live` with
                           {"camera": {mode, face, smiling, smilePct, ...}} (at most 4/s)
         GET /api/health   {"ok": true}
+        POST /api/player  {"name": "..."}: Poker Face name entry (the player types it on
+                          the booth screen before dialing); the next claim is logged under it
         GET /api/camera.mjpg  live webcam (MJPEG) with the OpenCV overlay, from the
                           frames the face rounds already read (camera_feed.py);
                           503 when there is no camera feed (Reflex, --mock)
         GET /...          frontend/dist (the `npm run build` output) if present,
                           so no Node is needed at the venue
-    CORS is open (read-only, local data) so a Vite dev server on another port works.
+    CORS is open (local data; the one write is the player name) so a Vite dev server on another port works.
 
 Stdlib only (the camera JPEGs are made by camera_feed.py with OpenCV). Nothing here
 touches the serial port, SQLite writes or audio, or writes a camera frame anywhere.
@@ -60,13 +62,26 @@ ROUND_DISPLAY_NAMES = {1: "Reflex", 2: "Steady Hands", 3: "Retreat", 5: "Poker F
 SCREENS = ("idle", "predicting", "performing", "reveal")
 
 # Arduino status states that mean "a round is running, claim locked" (and what's happening).
-_PERFORMING_STATES = {"locked", "cue", "countdown", "hold", "false_start", "window"}
+# Not "window": that is the sketch acknowledging the cue length (W<ms>) at boot, not a round.
+# The face rounds start on the claim line instead (claim_locked).
+_PERFORMING_STATES = {"locked", "cue", "countdown", "hold", "false_start"}
 
 SSE_KEEPALIVE_S = 15.0
+_MAX_POST_BYTES = 1024
 MJPEG_BOUNDARY = "delulu-frame"
 _MJPEG_IDLE_S = 1.0        # no new frame for this long -> the "camera paused" placeholder
 _MJPEG_PLACEHOLDER_EVERY_S = 2.0   # ...re-sent this often (also notices a closed browser tab)
 _SSE_POLL_S = 0.5          # also catches time-based changes (reveal hold ending)
+
+
+def clean_player_name(raw) -> Optional[str]:
+    """A typed name -> what gets logged: printable, single-spaced, at most UI_PLAYER_NAME_MAX
+    characters. None if nothing usable is left."""
+    if not isinstance(raw, str):
+        return None
+    text = "".join(ch if ch.isprintable() else " " for ch in raw)
+    text = " ".join(text.split())[:config.UI_PLAYER_NAME_MAX].strip()
+    return text or None
 
 
 def round_key(round_id: Optional[int]) -> Optional[str]:
@@ -218,7 +233,10 @@ class GameState:
         self._errors_reported: set[str] = set()
         self.version = 0
         self.live_version = 0          # bumps for the camera's fast numbers (SSE `live` events only)
-        self.player: Optional[str] = None
+        self.player: Optional[str] = None      # the fallback name (--player, or "Guest")
+        self.name_entry = False        # Poker Face --ui: players type their name before dialing
+        self.named_player: Optional[str] = None
+        self._activity_at = clock()    # last name / dial / claim / result: the name expires with idle
         self.session_id: Optional[str] = None
         self.selected_round: Optional[int] = None
         self.mock = False
@@ -267,9 +285,12 @@ class GameState:
 
     # --------------------------------------------------------------- events
     @_crash_safe
-    def session_started(self, player: str, round_id: int, session_id: str, mock: bool = False) -> None:
+    def session_started(self, player: str, round_id: int, session_id: str, mock: bool = False,
+                        name_entry: bool = False) -> None:
         with self._cond:
             self.player = player
+            self.name_entry = bool(name_entry)
+            self.named_player = None
             self.selected_round = round_id
             self.session_id = session_id
             self.mock = bool(mock)
@@ -357,6 +378,7 @@ class GameState:
             if v == self.dial_value:
                 return
             self.dial_value = v
+            self._activity_at = self._clock()
             before = self._effective_screen()
             screen = before
             structural = False
@@ -378,6 +400,7 @@ class GameState:
     def claim_locked(self, round_id: int, claim: float) -> None:
         """A claim is known before the result (Round 5: the Arduino sends it, the Pi measures)."""
         with self._cond:
+            self._activity_at = self._clock()
             self.armed = True
             self.active_round_id = round_id
             self.live_claim = _int(claim)
@@ -405,9 +428,48 @@ class GameState:
             self.active_round_id = result.round_id
             self.live_claim = _int(result.claim)
             self.stage = "result"
+            self._activity_at = self._clock()
             self.notice = None
             self._set_phase("reveal")
             self._changed()
+
+    @_crash_safe
+    def set_player(self, raw) -> Optional[str]:
+        """The booth screen's name entry. Returns the name as it will be logged, or None."""
+        name = clean_player_name(raw)
+        if name is None:
+            return None
+        with self._cond:
+            self.named_player = name
+            self._activity_at = self._clock()
+            # Typed on the attract screen: someone is here, go to the dial (like turning the knob).
+            if self.armed and self._effective_screen() == "idle":
+                self.active_round_id = self.selected_round
+                self.live_claim = None
+                self._set_phase("predicting")
+            self._changed()
+        return name
+
+    def player_named(self) -> bool:
+        """A name was typed for this player (and hasn't expired with the idle timeout)."""
+        with self._cond:
+            return bool(self.named_player) and not self._name_expired_locked()
+
+    def round_player(self) -> str:
+        """The name to log the round that is starting under (called when the claim locks)."""
+        with self._cond:
+            return self._current_player_locked()
+
+    def _name_expired_locked(self) -> bool:
+        # Nobody has touched the rig for the idle timeout and the attract screen is up:
+        # the next person to walk up is someone else.
+        return (self._effective_screen() == "idle"
+                and self._clock() - self._activity_at >= self.idle_after_s)
+
+    def _current_player_locked(self) -> str:
+        if self.named_player and not self._name_expired_locked():
+            return self.named_player
+        return self.player or config.UI_DEFAULT_PLAYER
 
     @_crash_safe
     def verdict_text(self, text: str) -> None:
@@ -553,7 +615,9 @@ class GameState:
         show_round = screen in ("predicting", "performing")
         return {
             "screen": screen,
-            "player": self.player,
+            "player": self._current_player_locked(),
+            "nameEntry": self.name_entry,
+            "playerNamed": bool(self.named_player) and not self._name_expired_locked(),
             "activeRound": active_round(self.active_round_id) if show_round else None,
             "liveClaim": self._live_claim_for(screen),
             "latestResult": self.latest_result,
@@ -643,7 +707,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Cache-Control, Last-Event-ID")
 
     def _send(self, code: int, body: bytes, content_type: str, head_only: bool = False) -> None:
@@ -667,6 +731,31 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         self._route()
+
+    def do_POST(self):  # noqa: N802
+        path = urlsplit(self.path).path
+        try:
+            if path != "/api/player":
+                self._send(404, b'{"error": "not found"}', "application/json")
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if not 0 < length <= _MAX_POST_BYTES:
+                self._send(400, b'{"error": "send {\\"name\\": \\"...\\"}"}', "application/json")
+                return
+            try:
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                body = None
+            name = self.state.set_player(body.get("name")) if isinstance(body, dict) else None
+            if name is None:
+                self._send(400, b'{"error": "empty or invalid name"}', "application/json")
+                return
+            self._send(200, json.dumps({"ok": True, "player": name}).encode(), "application/json")
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _route(self, head_only: bool = False) -> None:
         path = urlsplit(self.path).path

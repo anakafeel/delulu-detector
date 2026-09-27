@@ -75,6 +75,17 @@ def test_synthesize_passes_connect_read_tuple_within_budget(monkeypatch, tmp_pat
     assert seen["stream"] is True
 
 
+@pytest.mark.parametrize("speed,expected", [(1.15, {"speed": 1.15}), (1.0, None)])
+def test_speed_goes_in_voice_settings_only_when_not_1(monkeypatch, tmp_path, speed, expected):
+    seen = {}
+    monkeypatch.setattr(ec.requests, "post",
+                        lambda url, **kw: seen.update(kw) or _FakeResponse([b"audio"]))
+    monkeypatch.setattr(config, "ELEVENLABS_SPEED", speed)
+    ec.synthesize("hi", tmp_path / "v.mp3", api_key="k", timeout_s=3.0)
+    assert seen["json"].get("voice_settings") == expected
+    assert seen["json"]["text"] == "hi"
+
+
 def test_slow_first_byte_cannot_exceed_budget(monkeypatch, tmp_path):
     # requests.post blocks (slow DNS/connect/first byte) far past the budget.
     def slow_post(url, **kw):

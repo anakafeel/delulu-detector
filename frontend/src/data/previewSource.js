@@ -54,6 +54,17 @@ const SCENES = [
 
 const KEY_TO_SCENE = { 1: 0, 2: 1, 3: 2, 4: 3 }
 
+// The name typed on the preview's Poker Face screens (Straight Face and Reflex have no name step).
+let previewPlayer = null
+let previewEmit = null
+export function setPreviewPlayer(name) {
+  const clean = String(name ?? '').replace(/\s+/g, ' ').trim().slice(0, 16)
+  if (!clean) return Promise.reject(new Error('empty name'))
+  previewPlayer = clean
+  previewEmit?.()
+  return Promise.resolve(clean)
+}
+
 export function previewEnabled() {
   const flag = import.meta.env.VITE_UI_PREVIEW
   if (import.meta.env.MODE === 'preview' || flag === '1' || flag === 'true') return true
@@ -106,6 +117,7 @@ export function subscribePreview(callback) {
   }
 
   const onKey = (event) => {
+    if (event.target?.tagName === 'INPUT') return        // typing a name, not switching scenes
     if (event.key === '0') {
       pinned = false
       emit()
@@ -122,11 +134,13 @@ export function subscribePreview(callback) {
   }
 
   window.addEventListener('keydown', onKey)
+  previewEmit = emit
   emit()
   arm()
 
   return () => {
     closed = true
+    previewEmit = null
     clearTimeout(timer)
     window.removeEventListener('keydown', onKey)
   }
@@ -148,7 +162,8 @@ function sampleScene(scene, elapsed) {
     const from = scene.from ?? scene.to
     tick = Math.round(from + (scene.to - from) * (reading ? 1 : eased))
   }
-  return { tick, reading }
+  const remaining = scene.screen === 'performing' && !reading ? Math.max(0, (scene.ms - elapsed) / 1000) : null
+  return { tick, reading, remaining }
 }
 
 function sceneState(scene, sample) {
@@ -170,21 +185,29 @@ function sceneState(scene, sample) {
         face: true,
         smiling: false,
         composure: scene.screen === 'performing' ? sample.tick : 80,
+        remainingS: sample.remaining ?? undefined,
+        windowS: scene.ms / 1000,
         phase: scene.type === 6 && scene.screen === 'performing' && !sample.reading ? 'holding' : undefined,
         held_s: scene.type === 6 && scene.screen === 'performing' && !sample.reading ? 3.2 : undefined,
       }
   const latest = scene.screen === 'reveal'
     ? row(scene.round, scene.type, 9, 'Saim', scene.claim, scene.actual, scene.gap, 'Preview verdict.', scene.unit)
     : null
+  const nameEntry = scene.type === 5
   return {
     screen: scene.screen,
-    player: 'Saim',
+    player: nameEntry ? previewPlayer ?? 'Guest' : 'Saim',
+    nameEntry,
+    playerNamed: nameEntry && previewPlayer !== null,
     activeRound: active,
     liveClaim: claim,
     latestResult: latest,
     history: HISTORY,
     camera,
     beat: sample.reading ? 'scoring' : null,
+    notice: scene.screen === 'performing' && scene.type === 5
+      ? { level: 'info', message: 'Why should we hire you, and not literally anyone else?' }
+      : null,
   }
 }
 
@@ -202,5 +225,6 @@ function row(round, type, id, player, claim, actual, gap, verdict, unit) {
     score: Math.max(0, Math.round(100 - gap)),
     verdict_text: verdict,
     verdict_status: 'ready',
+    extra: type === 1 ? {} : { presage_samples: 38, frames: 92, fps: 15.3 },
   }
 }

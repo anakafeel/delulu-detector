@@ -247,6 +247,9 @@ class CameraFeed:
         frac = info["smile_frac"]
         live = {"mode": info["mode"], "face": info["face"], "smiling": info["smiling"],
                 "smilePct": None if frac is None else int(round(frac * 100))}
+        if info["remaining_s"] is not None and info["kind"] == "poker":    # the browser's countdown
+            live["remainingS"] = round(float(info["remaining_s"]), 1)
+            live["windowS"] = round(float(self._window_s), 1)
         if info.get("composure") is not None:
             live["composure"] = info["composure"]
         if "phase" in info:

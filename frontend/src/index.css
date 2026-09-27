@@ -6,23 +6,38 @@
   --color-surface: #14131c;
   --color-surface-2: #1c1a26;
 
-  /* ink */
+  /* ink. Booth rule: anything that carries information is at least 5.5:1 on void
+     (washed-out screens and venue glare eat contrast); dim is ~10:1, ink ~18:1. */
   --color-ink: #f5f4f0;
-  --color-ink-dim: #8b899a;
-  --color-ink-faint: #4d4b5c;
+  --color-ink-dim: #b8b6c6;
+  --color-ink-faint: #8a889a;
 
   /* fixed roles: claim vs reality, always labeled, never used interchangeably */
   --color-claim: #22e5ff;
-  --color-reality: #b45cff;
+  --color-reality: #c58bff;
 
   /* status scale (gap severity) - reserved, always paired with a number/verdict */
   --color-good: #22c55e;
   --color-warning: #eab308;
   --color-serious: #f97316;
-  --color-critical: #ef233c;
+  --color-critical: #ff5468;
 
   --font-display: "Bungee", system-ui, sans-serif;
   --font-game: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Type scale. Only the question is booth-sized; everything else keeps the sizes the
+     screens had before (meta = text-sm, data = text-lg, title = text-3xl, stat = text-7xl).
+     question  the live interview question, in its own strip under the camera */
+  --text-question: clamp(1.5rem, 2.2vw, 2.5rem);
+  --text-question--line-height: 1.15;
+  --text-stat: 4.5rem;
+  --text-stat--line-height: 1;
+  --text-title: 1.875rem;
+  --text-title--line-height: 1.15;
+  --text-data: 1.125rem;
+  --text-data--line-height: 1.4;
+  --text-meta: 0.875rem;
+  --text-meta--line-height: 1.4;
 }
 
 html, body, #root {
@@ -110,8 +125,8 @@ body {
   100% { opacity: 1; transform: scale(1) rotate(-2deg); }
 }
 .anim-stamp-in {
-  animation: stamp-in 0.5s cubic-bezier(0.2, 0.8, 0.3, 1.1) both;
-  animation-delay: 0.45s;
+  /* No delay: the line only arrives once the audio is ready, don't hold it back further. */
+  animation: stamp-in 0.4s cubic-bezier(0.2, 0.8, 0.3, 1.1) both;
 }
 
 @keyframes pop-in {
@@ -177,4 +192,20 @@ body {
 }
 .quiet-pulse {
   animation: quiet-pulse 1.8s ease-in-out infinite;
+}
+
+/* Phase frame: the camera screen's border says which phase a round is in, so a
+   glance from across the room is enough (white = who's playing, cyan = setting
+   the claim, purple = the face is being read). */
+.phase-frame {
+  box-shadow: inset 0 0 0 4px var(--phase-color), inset 0 0 36px -12px var(--phase-color);
+  transition: box-shadow 300ms ease;
+}
+
+@keyframes caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.caret-blink {
+  animation: caret-blink 1s steps(1) infinite;
 }

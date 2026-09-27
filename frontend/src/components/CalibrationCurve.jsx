@@ -3,8 +3,8 @@ import { currentOrLastPlayer, playerSeries } from '../data/deriveStats'
 import { severityFor, SEVERITY_LEVELS } from '../data/severity'
 import { useMeasuredWidth } from '../hooks/useMeasuredWidth'
 
-const H = 170
-const PAD = { top: 18, right: 14, bottom: 24, left: 30 }
+const H = 240
+const PAD = { top: 30, right: 18, bottom: 30, left: 44 }
 
 const GRID_VALUES = [0, 50, 100]
 
@@ -49,15 +49,15 @@ function CalibrationCurve({ player: currentPlayer, history }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
-        <h3 className="font-display text-xs uppercase tracking-[0.3em] text-ink-dim">
-          Calibration Curve
+        <h3 className="font-display text-data uppercase tracking-[0.15em] text-ink">
+          Calibration curve
         </h3>
-        {player && <span className="font-game text-xs text-ink-faint">{player}</span>}
+        {player && <span className="font-game text-meta text-ink-dim">{player} · gap per round</span>}
       </div>
 
       <div ref={containerRef} className="w-full">
       {points.length < 2 ? (
-        <p className="font-game text-sm text-ink-faint">Needs at least 2 rounds to plot.</p>
+        <p className="font-game text-data text-ink-dim">Play 2 rounds to see your gap shrink (or not).</p>
       ) : (
         <>
           <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="block">
@@ -78,8 +78,8 @@ function CalibrationCurve({ player: currentPlayer, history }) {
                     y={y}
                     textAnchor="end"
                     dominantBaseline="middle"
-                    className="fill-ink-faint"
-                    fontSize={8}
+                    className="fill-ink-dim"
+                    fontSize={16}
                     fontFamily="var(--font-game)"
                   >
                     {v}
@@ -108,7 +108,7 @@ function CalibrationCurve({ player: currentPlayer, history }) {
                     className="chart-dot"
                     cx={p.x}
                     cy={p.y}
-                    r={isLast ? 7 : 5}
+                    r={isLast ? 9 : 6}
                     fill={p.severity.color}
                     stroke="var(--color-surface)"
                     strokeWidth={2}
@@ -119,9 +119,9 @@ function CalibrationCurve({ player: currentPlayer, history }) {
                   />
                   <text
                     x={p.x}
-                    y={labelAbove ? p.y - 10 : p.y + 16}
+                    y={labelAbove ? p.y - 14 : p.y + 26}
                     textAnchor="middle"
-                    fontSize={isLast ? 10 : 8}
+                    fontSize={isLast ? 22 : 17}
                     fontWeight={isLast ? 700 : 400}
                     fontFamily="var(--font-game)"
                     fill={isLast ? p.severity.color : 'var(--color-ink-dim)'}
@@ -135,9 +135,9 @@ function CalibrationCurve({ player: currentPlayer, history }) {
 
           <div className="flex flex-wrap gap-x-3 gap-y-1 px-1">
             {SEVERITY_LEVELS.map((l) => (
-              <span key={l.key} className="flex items-center gap-1 font-game text-[0.6rem] text-ink-faint">
+              <span key={l.key} className="flex items-center gap-1.5 font-game text-meta text-ink-dim">
                 <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  className="inline-block h-3 w-3 rounded-full"
                   style={{ background: l.color }}
                 />
                 {l.tag}
