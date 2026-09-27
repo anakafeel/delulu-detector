@@ -7,6 +7,7 @@ import RevealMoment from './components/RevealMoment'
 import Leaderboard from './components/Leaderboard'
 import CalibrationCurve from './components/CalibrationCurve'
 import ClaimAnnouncer from './components/ClaimAnnouncer'
+import logo from './assets/logo.png'
 import HowItWorks from './components/HowItWorks'
 import { useNameEntry } from './hooks/useNameEntry'
 
@@ -126,8 +127,11 @@ function BoothShell({ state, names, onHelp }) {
       <div className="crt-overlay" />
 
       <header className="relative z-10 mb-5 flex items-center justify-between px-1">
-        <span className="font-display text-title tracking-widest text-ink">
-          HILL&apos;S <span className="text-claim">KITCHEN</span>
+        <span className="flex items-center gap-3 font-display text-title tracking-widest text-ink">
+          <img src={logo} alt="" aria-hidden="true" className="h-11 w-11 rounded-lg" draggable={false} />
+          <span>
+            HILL&apos;S <span className="text-claim">KITCHEN</span>
+          </span>
         </span>
         <button
           type="button"
