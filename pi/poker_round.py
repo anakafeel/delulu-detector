@@ -1,4 +1,4 @@
-"""Poker Face (Hill's Kitchen's Round 2, internal id 5) on the Pi: claim line in, reading out.
+"""Poker Face (What the Hill's Round 2, internal id 5) on the Pi: claim line in, reading out.
 
 Also home of FaceRound, the camera plumbing shared with Straight Face
 (straight_round.py): camera lock, browser feed, claim-setting preview, clips.
@@ -179,7 +179,7 @@ class LivePrompt:
 
     def start(self) -> "LivePrompt":
         if self.lines and self._thread is None:
-            self._thread = threading.Thread(target=self._run, name="hk-live-question", daemon=True)
+            self._thread = threading.Thread(target=self._run, name="wth-live-question", daemon=True)
             self._thread.start()
         return self
 

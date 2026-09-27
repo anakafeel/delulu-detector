@@ -153,7 +153,7 @@ STRAIGHT_QUESTION_GAP_S = 0.3 # pause between the rapid-fire question clips
 # Round types the Pi can score, and their display names (internal ids; the ids
 # are stored in the session log, so they never change).
 ROUND_NAMES = {1: "Reflex", 2: "Steady Hands", 5: "Poker Face", 6: "Straight Face"}
-# Hill's Kitchen's game: these rounds, labelled 1 / 2 / 3 on screen and in the terminal.
+# What the Hill's game: these rounds, labelled 1 / 2 / 3 on screen and in the terminal.
 GAME_ROUNDS = (1, 5, 6)
 ROUND_LABELS = {1: 1, 5: 2, 6: 3}
 # Cut from the game in the pivot (they don't read the face). Still in the code and

@@ -14,12 +14,12 @@ export default function IdleScreen({ names, onHelp }) {
 
       <img
         src={logo}
-        alt="Hill's Kitchen logo: a fork and chef's knife crossed under a flame, on a mountain"
+        alt="What the Hill logo: an orange fox in a green shirt and tie, scuba tank on his back, holding a finger to his lips underwater"
         className="anim-fade-scale-in mb-4 h-40 w-40 rounded-2xl shadow-[0_0_60px_-10px_rgba(255,60,30,0.55)]"
         draggable={false}
       />
       <p className="anim-fade-in-up font-game text-data uppercase tracking-[0.5em] text-ink-dim">
-        Hill's Kitchen
+        What the Hill
       </p>
 
       <h1 className="anim-fade-scale-in mt-4 text-center font-display text-6xl leading-tight text-ink [text-shadow:0_0_24px_var(--color-claim),0_0_60px_rgba(34,229,255,0.35)] md:text-7xl">

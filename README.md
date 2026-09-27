@@ -1,10 +1,10 @@
-# Hill's Kitchen
+# What the Hill
 
-**Your face gives you away.** Hill's Kitchen is a live self-calibration game built for Hack the Hill III. You dial in how unreadable you think your face is going to be (0-100), lock it with a button, and then an interviewer voice asks you a tough question while a webcam watches you. Presage SmartSpectra rates how neutral your expression looks during the question, the game compares that with your claim, and an ElevenLabs-voiced narrator (a skeptical interviewer who is also your brutally honest friend) affirms you or roasts you, live.
+**Your face gives you away.** What the Hill is a live self-calibration game built for Hack the Hill III. You dial in how unreadable you think your face is going to be (0-100), lock it with a button, and then an interviewer voice asks you a tough question while a webcam watches you. Presage SmartSpectra rates how neutral your expression looks during the question, the game compares that with your claim, and an ElevenLabs-voiced narrator (a skeptical interviewer who is also your brutally honest friend) affirms you or roasts you, live.
 
 Everything in the loop is real: the dial value, the Presage reading, the gap, the score and the voiced verdict. Nothing is pre-recorded or simulated in a live round. If Presage does not return a reading, the round is not scored. If ElevenLabs fails, the screen says "verdict unavailable" instead of playing a stand-in.
 
-The GitHub repo is still called `delulu-detector` (an earlier name); the project is Hill's Kitchen. The product thinking is in [`Hill's Kitchen — PRD.md`](<Hill's Kitchen — PRD.md>).
+The GitHub repo is still called `delulu-detector` (an earlier name); the project is What the Hill. The product thinking is in [`What the Hill — PRD.md`](<What the Hill — PRD.md>).
 
 ## What this is, honestly
 
@@ -261,13 +261,13 @@ CI (`.github/workflows/ci.yml`) runs the tests, builds and lints the frontend, a
 
 ## Legacy: Steady Hands
 
-Cut from Hill's Kitchen because it measures hand tremor, not the face. The code, tests and sketch mode stay: `python pi/main.py --legacy-rounds --round 2 --port /dev/ttyACM0` (or `--mock --legacy-rounds --round 2`). It needs a Grove LIS3DHTR accelerometer on the I2C port; the player holds it still for 5 s and the Arduino reports the RMS tremor in mg. Thresholds (`STEADY_*` in `pi/config.py`) came from one calibration session, recorded in [`docs/calibration/round2-2026-09-26.md`](docs/calibration/round2-2026-09-26.md).
+Cut from What the Hill because it measures hand tremor, not the face. The code, tests and sketch mode stay: `python pi/main.py --legacy-rounds --round 2 --port /dev/ttyACM0` (or `--mock --legacy-rounds --round 2`). It needs a Grove LIS3DHTR accelerometer on the I2C port; the player holds it still for 5 s and the Arduino reports the RMS tremor in mg. Thresholds (`STEADY_*` in `pi/config.py`) came from one calibration session, recorded in [`docs/calibration/round2-2026-09-26.md`](docs/calibration/round2-2026-09-26.md).
 
 ## Repo layout
 ```
-delulu-detector/                       # the repo keeps its name; the project is Hill's Kitchen
+delulu-detector/                       # the repo keeps its name; the project is What the Hill
 ├── README.md
-├── Hill's Kitchen — PRD.md            # product requirements: goals, honest framing, rounds, status
+├── What the Hill — PRD.md            # product requirements: goals, honest framing, rounds, status
 ├── LICENSE                            # MIT
 ├── .env.example
 ├── .github/workflows/ci.yml           # pytest, sketch compile for both boards, frontend build + lint

@@ -130,7 +130,7 @@ function BoothShell({ state, names, onHelp }) {
         <span className="flex items-center gap-3 font-display text-title tracking-widest text-ink">
           <img src={logo} alt="" aria-hidden="true" className="h-11 w-11 rounded-lg" draggable={false} />
           <span>
-            HILL&apos;S <span className="text-claim">KITCHEN</span>
+            WHAT THE <span className="text-claim">HILL</span>
           </span>
         </span>
         <button
