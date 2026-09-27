@@ -6,9 +6,9 @@
 
 **Your face gives you away.** What the Hill is a live nervous-confidence check built for Hack the Hill III. Most people do not find out how they actually come across in a high-stakes moment until they are already in it. A player dials in how composed they expect to look, then does a short mock of that moment on camera. Presage reads the face live, the game compares that reading with the claim, and an ElevenLabs narrator calls the gap the moment it is computed.
 
-https://github.com/user-attachments/assets/98a5df3c-0db5-48a0-9f82-5fd4d06bb91a
+https://github.com/user-attachments/assets/5e04c1db-09b3-4fd9-830d-9c0b3a61b0a2
 
-That is the latest brag cut, 21 seconds, recorded from the live booth: the real camera, anakafeel's claim of 68, composure 0, gap 68. The same file is in the repo at [`brag-output/brag.mp4`](brag-output/brag.mp4).
+That is the latest brag cut, 19 seconds, recorded from the live booth in the booth fonts: the real camera, anakafeel's claim of 68, composure 0, gap 68. The same file is in the repo at [`brag-output/brag.mp4`](brag-output/brag.mp4).
 
 The product thinking, including the pitch line, the rounds, and what is still spec, is in [`What the Hill — PRD.md`](<What the Hill — PRD.md>). The GitHub repo is [anakafeel/what-the-hill](https://github.com/anakafeel/what-the-hill). The project domain is [whatthehill.wiki](http://whatthehill.wiki). It forwards to this README at the repo home, [https://github.com/anakafeel/what-the-hill](https://github.com/anakafeel/what-the-hill).
 
