@@ -62,7 +62,9 @@ ROUND_DISPLAY_NAMES = {1: "Reflex", 2: "Steady Hands", 3: "Retreat", 5: "Poker F
 SCREENS = ("idle", "predicting", "performing", "reveal")
 
 # Arduino status states that mean "a round is running, claim locked" (and what's happening).
-_PERFORMING_STATES = {"locked", "cue", "countdown", "hold", "false_start", "window"}
+# Not "window": that is the sketch acknowledging the cue length (W<ms>) at boot, not a round.
+# The face rounds start on the claim line instead (claim_locked).
+_PERFORMING_STATES = {"locked", "cue", "countdown", "hold", "false_start"}
 
 SSE_KEEPALIVE_S = 15.0
 _MAX_POST_BYTES = 1024

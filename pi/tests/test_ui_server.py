@@ -667,3 +667,11 @@ def test_presage_sample_count_reaches_the_logged_extras():
     result = score_reading(reading)
     assert result.actual == 62.5 and result.extra["presage_samples"] == 41
     assert ui_server.result_from_round(result, "Ada", "s", 1)["extra"]["presage_samples"] == 41
+
+
+def test_cue_length_ack_at_boot_is_not_a_round(clock):
+    s = GameState(clock=clock, reveal_hold_s=10, idle_after_s=60)
+    s.session_started("Guest", 5, "sess", name_entry=True)
+    s.on_status(status("mode", round_id=5))
+    s.on_status(status("window", window_ms=6000))        # reply to W6000, sent right after the ack
+    assert s.snapshot()["screen"] == "predicting"         # the dial, not the camera
