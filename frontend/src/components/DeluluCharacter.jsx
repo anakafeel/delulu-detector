@@ -73,7 +73,7 @@ export default function DeluluCharacter({
 
         {/* The Character Image */}
         <motion.img
-          src="/character/delulu.svg"
+          src="/public/delulu_character.svg"
           alt="Delulu Character"
           className="h-full w-full object-contain drop-shadow-2xl"
           animate={reduce ? {} : reaction.body}
