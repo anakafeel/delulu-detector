@@ -306,7 +306,7 @@ The pitch line stays what's already in "What This Actually Is": we're demonstrat
 ## Repo Structure
 
 ```
-delulu-detector/               # the GitHub repo keeps its name; the project is What the Hill
+what-the-hill/                 # github.com/anakafeel/what-the-hill
 ├── README.md                  # project pitch, setup instructions, demo gif
 ├── LICENSE                    # open license for the FOSS category
 ├── arduino/

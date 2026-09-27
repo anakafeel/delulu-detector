@@ -36,6 +36,6 @@ A rotary dial and a button are on an Arduino. A USB webcam is on the computer ru
 
 ## Source
 
-The repository is public under the MIT license: https://github.com/anakafeel/delulu-detector
+The repository is public under the MIT license: https://github.com/anakafeel/what-the-hill
 
 The project is What the Hill. The repository name is unchanged.
