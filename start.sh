@@ -124,7 +124,10 @@ stop_booth
 wait_free
 maybe_build
 
-exec env PYTHONPATH=pi "$PY" -u pi/main.py \
+# OBS_VKCAPTURE injects a Vulkan layer into Presage. SmartSpectra ships its own
+# libGL, and that layer makes the NVIDIA driver abort on the way out, so the
+# round ends with no composure sample. Keep the layer out of this process.
+exec env -u OBS_VKCAPTURE DISABLE_OBS_VKCAPTURE=1 PYTHONPATH=pi "$PY" -u pi/main.py \
   --port "$SERIAL" \
   --round 5 \
   --camera 2 \
