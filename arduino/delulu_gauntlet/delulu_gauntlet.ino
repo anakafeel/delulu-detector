@@ -1,3 +1,6 @@
+#include <Wire.h>
+#include <rgb_lcd.h>
+
 /*
  * The Tell - Round 1 (Reflex) + Poker Face (id 5) + Straight Face Under Pressure (id 6)
  * (+ the cut Steady Hands, id 2, still selectable with R2). The face rounds only lock the claim here.
@@ -17,6 +20,9 @@
  *            every R5 / R6 ack: 6000 for Poker Face, 20000 for Straight Face), answered with
  *            {"type":"status","state":"window","window_ms":6000}, or
  *            {"type":"status","state":"error","error":"bad_window"} if out of range.
+ * Local dial feedback (not on the serial protocol): a Grove LCD RGB Backlight on
+ * A4/A5 shows "Claim: N" plus a 16-column bar and a blue-to-red backlight, and
+ * the buzzer on BUZZER_PIN blips as the knob moves. Neither changes a JSON line.
  *   S     -> only DURING a face-round cue: end it now (the Pi saw the face change in
  *            Round 6). Ignored between rounds.
  * Commands are only read between rounds (except S during the cue); a round in progress finishes first.
@@ -116,6 +122,13 @@
 #define DIAL_SMOOTH_DIV       8      // exponential smoothing, new sample weight 1/8 (~80 ms time constant)
 #define DIAL_REPORT_MS        100    // at most one {"type":"dial"} line this often
 #define DIAL_HYST_TENTHS      3      // must move 0.3 past the next value's edge before it is reported
+#define DIAL_TONE_STEP        3      // blip only after the claim moves this many units
+#define DIAL_TONE_MS          30     // each blip; short so a fast spin stays separate clicks
+#define DIAL_TONE_GAP_MS      45     // minimum time between blips
+#define DIAL_TONE_HZ_LO       220    // pitch at claim 0
+#define DIAL_TONE_HZ_HI       880    // pitch at claim 100; kept under the 2 kHz cue beep
+#define DIAL_LOCK_HOLD_MS     1500   // LCD stays on the locked claim this long, then follows the knob again
+#define LCD_I2C_ADDR          (0x7c >> 1)  // Grove LCD text address, 0x3E
 
 // Round 2 (Steady Hands)
 #define STEADY_COUNTDOWN_MS   1500   // "get ready" 3-2-1 before the hold
@@ -164,6 +177,7 @@ bool buttonPressed() {
 void waitForRelease() {
   unsigned long releasedAt = millis();
   while (true) {
+    dialFeedbackPoll();
     if (buttonPressed()) {
       releasedAt = millis();
     } else if (millis() - releasedAt >= RELEASE_SETTLE_MS) {
@@ -197,6 +211,7 @@ bool confirmedPress(unsigned long &firstAt) {
     if (nowUs - startUs >= PRESS_CONFIRM_MAX_MS * 1000UL) {
       return false;
     }
+    buzzPoll();
     if (buttonPressed()) {
       pressedUs += nowUs - lastUs;
       released = false;
@@ -306,6 +321,181 @@ int readClaim() {
   return dialValue;
 }
 
+// ============================ Dial feedback (LCD + buzzer) ============================
+// Local only. Nothing here writes Serial. tone() with a duration returns immediately.
+rgb_lcd claimLcd;
+bool lcdOk = false;
+int lcdShown = -1;
+unsigned long lcdFreezeUntil = 0;
+
+enum DialChime : uint8_t { CHIME_IDLE = 0, CHIME_NOTE1, CHIME_GAP, CHIME_NOTE2 };
+DialChime dialChime = CHIME_IDLE;
+unsigned long dialChimeAt = 0;
+int dialToneAt = -1;
+unsigned long dialToneMs = 0;
+// The R4 LED matrix holds the timer tone() needs, so tone() stays silent.
+// This square wave is toggled from dialFeedbackPoll instead.
+unsigned long buzzHalfUs = 0;
+unsigned long buzzToggleAt = 0;
+unsigned long buzzUntilMs = 0;
+bool buzzLevel = false;
+
+void buzzStop() {
+  buzzUntilMs = 0;
+  buzzLevel = false;
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
+void buzzStart(unsigned int freq, unsigned long durationMs) {
+#if USE_BUZZER
+  if (freq < 50) freq = 50;
+  buzzHalfUs = 500000UL / freq;
+  buzzUntilMs = millis() + durationMs;
+  buzzToggleAt = micros();
+  buzzLevel = true;
+  digitalWrite(BUZZER_PIN, HIGH);
+#else
+  (void)freq;
+  (void)durationMs;
+#endif
+}
+
+void buzzPoll() {
+#if USE_BUZZER
+  if (buzzUntilMs == 0) return;
+  if ((long)(millis() - buzzUntilMs) >= 0) {
+    buzzStop();
+    return;
+  }
+  const unsigned long nowUs = micros();
+  if ((long)(nowUs - buzzToggleAt) >= (long)buzzHalfUs) {
+    buzzToggleAt = nowUs;
+    buzzLevel = !buzzLevel;
+    digitalWrite(BUZZER_PIN, buzzLevel ? HIGH : LOW);
+  }
+#endif
+}
+
+bool i2cAck(uint8_t addr) {
+  Wire.beginTransmission(addr);
+  return Wire.endTransmission() == 0;
+}
+
+void lcdMakeBlocks() {
+  // Five widths of a 5-column cell, so the bar moves in 1.25-point steps instead of
+  // jumping a whole column every 6 points.
+  for (uint8_t level = 1; level <= 5; level++) {
+    uint8_t glyph[8];
+    uint8_t row = 0;
+    for (uint8_t col = 0; col < level; col++) {
+      row |= (uint8_t)(0x10 >> col);
+    }
+    for (uint8_t i = 0; i < 8; i++) glyph[i] = row;
+    claimLcd.createChar(level - 1, glyph);
+  }
+}
+
+void lcdColor(int value) {
+  if (value < 0) value = 0;
+  if (value > 100) value = 100;
+  // Cool blue at 0, warm red-orange at 100. Green stays low so the middle doesn't go white.
+  const int r = value * 255 / 100;
+  const int b = (100 - value) * 210 / 100;
+  const int mid = value < 50 ? value : 100 - value;
+  const int g = 12 + mid * 50 / 50;
+  claimLcd.setRGB((unsigned char)r, (unsigned char)g, (unsigned char)b);
+}
+
+void lcdPaint(int value) {
+  if (!lcdOk || value < 0) return;
+  if (value > 100) value = 100;
+  char line[17];
+  snprintf(line, sizeof(line), "Claim: %3d      ", value);
+  claimLcd.setCursor(0, 0);
+  claimLcd.print(line);
+  const int pos = value * 80 / 100;          // 0..80 fifths across 16 cells
+  const int full = pos / 5;
+  const int part = pos % 5;
+  claimLcd.setCursor(0, 1);
+  for (int i = 0; i < 16; i++) {
+    if (i < full) {
+      claimLcd.write((uint8_t)4);            // full cell
+    } else if (i == full && part > 0) {
+      claimLcd.write((uint8_t)(part - 1));   // 1..4 fifths
+    } else {
+      claimLcd.write(' ');
+    }
+  }
+  lcdColor(value);
+  lcdShown = value;
+}
+
+void dialFeedbackBegin() {
+  lcdOk = i2cAck(LCD_I2C_ADDR);
+  if (!lcdOk) return;
+  claimLcd.begin(16, 2);
+  lcdMakeBlocks();
+  claimLcd.clear();
+  lcdShown = -1;
+}
+
+void dialBlip(int value) {
+#if USE_BUZZER
+  if (dialChime != CHIME_IDLE) return;
+  const unsigned long now = millis();
+  if (dialToneAt >= 0 && abs(value - dialToneAt) < DIAL_TONE_STEP) return;
+  if (dialToneAt >= 0 && now - dialToneMs < DIAL_TONE_GAP_MS) return;
+  int freq = DIAL_TONE_HZ_LO + value * (DIAL_TONE_HZ_HI - DIAL_TONE_HZ_LO) / 100;
+  buzzStart((unsigned int)freq, DIAL_TONE_MS);
+  dialToneAt = value;
+  dialToneMs = now;
+#else
+  (void)value;
+#endif
+}
+
+void dialFeedbackLock(int claim) {
+  lcdFreezeUntil = millis() + DIAL_LOCK_HOLD_MS;
+  lcdShown = -1;
+  lcdPaint(claim);
+  lcdShown = claim;
+#if USE_BUZZER
+  dialChime = CHIME_NOTE1;
+  dialChimeAt = millis();
+  buzzStart(494, 80);                        // two-note confirm, not another tick
+  dialToneAt = claim;
+  dialToneMs = dialChimeAt;
+#endif
+}
+
+// Advance the lock chime and, once the hold is over, follow the knob again.
+// Call this from the main loop and from any wait that would otherwise block.
+void dialFeedbackPoll() {
+  buzzPoll();
+#if USE_BUZZER
+  const unsigned long now = millis();
+  if (dialChime == CHIME_NOTE1 && now - dialChimeAt >= 80) {
+    buzzStop();
+    dialChime = CHIME_GAP;
+    dialChimeAt = now;
+  } else if (dialChime == CHIME_GAP && now - dialChimeAt >= 50) {
+    buzzStart(740, 120);
+    dialChime = CHIME_NOTE2;
+    dialChimeAt = now;
+  } else if (dialChime == CHIME_NOTE2 && now - dialChimeAt >= 120) {
+    dialChime = CHIME_IDLE;
+  }
+#endif
+  if (lcdFreezeUntil != 0 && (long)(millis() - lcdFreezeUntil) >= 0) {
+    lcdFreezeUntil = 0;
+    lcdShown = -1;                           // redraw whatever the knob says now, not zero
+  }
+  if (lcdFreezeUntil == 0 && dialValue >= 0 && dialValue != lcdShown) {
+    lcdPaint(dialValue);
+    dialBlip(dialValue);
+  }
+}
+
 void printStatus(const char *state) {
   Serial.print(F("{\"type\":\"status\",\"state\":\""));
   Serial.print(state);
@@ -339,7 +529,7 @@ void cueOn() {
   matrix.loadFrame(MATRIX_ALL_ON);
 #endif
 #if USE_BUZZER
-  tone(BUZZER_PIN, BUZZER_FREQ_HZ, BUZZER_MS);
+  buzzStart(BUZZER_FREQ_HZ, BUZZER_MS);
 #endif
 }
 
@@ -349,7 +539,7 @@ void cueOff() {
   matrix.loadFrame(MATRIX_ALL_OFF);
 #endif
 #if USE_BUZZER
-  noTone(BUZZER_PIN);
+  buzzStop();
 #endif
 }
 
@@ -635,6 +825,7 @@ void playReflexRound(int claim) {
   unsigned long waitStart = millis();
   unsigned long pressAt = 0;
   while (millis() - waitStart < waitMs) {
+    dialFeedbackPoll();
     if (confirmedPress(pressAt)) {
       Serial.print(F("{\"type\":\"status\",\"state\":\"false_start\",\"into_wait_ms\":"));
       Serial.print(pressAt - waitStart);
@@ -655,6 +846,7 @@ void playReflexRound(int claim) {
 
   // 5. Measure reaction.
   while (!confirmedPress(pressAt)) {
+    dialFeedbackPoll();
     if (millis() - cueAt >= REACTION_TIMEOUT_MS) {
       cueOff();
       printResult(claim, -1, false, true);
@@ -734,9 +926,9 @@ void playSteadyRound(int claim) {
   for (uint8_t step = 0; step < 3; step++) {
     unsigned long stepStart = millis();
     steadyCountdownFrame(step, true);
-    while (millis() - stepStart < stepMs / 2) {}
+    while (millis() - stepStart < stepMs / 2) dialFeedbackPoll();
     steadyCountdownFrame(step, false);
-    while (millis() - stepStart < stepMs) {}
+    while (millis() - stepStart < stepMs) dialFeedbackPoll();
   }
 
   // 4. Hold window: fixed-rate sampling. Button presses are ignored.
@@ -759,7 +951,7 @@ void playSteadyRound(int claim) {
   while (micros() - startUs < holdUs) {}                       // hold lasts the full window
   cueOff();
 #if USE_BUZZER
-  tone(BUZZER_PIN, BUZZER_FREQ_HZ, BUZZER_MS);    // "done" beep, after sampling ended
+  buzzStart(BUZZER_FREQ_HZ, BUZZER_MS);          // "done" beep, after sampling ended
 #endif
 
   // 5. Report.
@@ -810,11 +1002,12 @@ void playFaceRound(uint8_t roundId, int claim) {
   faceCueOn(roundId);
   const unsigned long start = millis();
   while (millis() - start < pokerWindowMs) {    // button ignored during the window
+    dialFeedbackPoll();
     if (stopCueRequested()) break;
   }
   cueOff();
 #if USE_BUZZER
-  tone(BUZZER_PIN, BUZZER_FREQ_HZ, BUZZER_MS);    // "done" beep
+  buzzStart(BUZZER_FREQ_HZ, BUZZER_MS);          // "done" beep
 #endif
   waitForRelease();
   printStatus("ready");
@@ -841,6 +1034,7 @@ void setup() {
 #if defined(ARDUINO_ARCH_AVR) || defined(ARDUINO_ARCH_RENESAS)
   ACCEL_WIRE.setWireTimeout(I2C_TIMEOUT_US, true);
 #endif
+  dialFeedbackBegin();
   detectAccel();
 
   Serial.print(F("{\"type\":\"status\",\"state\":\"ready\",\"accel\":\""));
@@ -857,6 +1051,7 @@ void printLocked(int claim) {
 void loop() {
   pollSerialCommands();              // R1 / R2 / R5 / W<ms> / ? from the Pi, only between rounds
   updateLiveDial();                  // {"type":"dial"} while the claim is being set
+  dialFeedbackPoll();                // LCD and blips; no serial traffic
 
   // 1-2. Wait for the lock press; the dial value at that moment is the claim.
   unsigned long lockAt = 0;
@@ -866,6 +1061,7 @@ void loop() {
   int claim = readClaim();
   seq++;
   printLocked(claim);
+  dialFeedbackLock(claim);           // freeze the LCD and play the confirm chime
   waitForRelease();
 
   if (roundMode == ROUND_STEADY) {
