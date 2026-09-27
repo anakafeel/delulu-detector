@@ -30,7 +30,7 @@ This matters enough to state plainly, because it's easy to oversell and a judge 
 
 **What it doesn't do:** it does not measure real interview or pitch performance, it does not diagnose anxiety or any clinical condition, and it does not help anyone actually land the interview. One play doesn't improve anyone's real-world composure, and a live Presage emotion read plus an OpenCV face track is a real signal, not a validated psychological instrument or a substitute for therapy or coaching.
 
-**What it actually is:** a live demonstration of a real pattern, people are consistently bad at predicting how nervous or composed they'll actually look to someone watching, because nobody gets real-time feedback on their own face during an actual high-stakes moment. "The tell" is a real, measured facial-emotion signal, read live through Presage and cross-checked with OpenCV's face tracking, compared against a self-report. That's the honest phenomenon being shown, and it's genuinely interesting on its own, no invented gap, no mocked data behind it.
+**What it actually is:** a live demonstration of a real pattern, people are consistently bad at predicting how nervous or composed they'll actually look to someone watching, because nobody gets real-time feedback on their own face during an actual high-stakes moment. The "tell" (the poker word for an involuntary giveaway) is a real, measured facial-emotion signal, read live through Presage and cross-checked with OpenCV's face tracking, compared against a self-report. That's the honest phenomenon being shown, and it's genuinely interesting on its own, no invented gap, no mocked data behind it.
 
 **Why it's still a good pitch:** the entertainment value comes from watching confident people get called out by their own face in real time, the same basic appeal as a lie-detector party game. That's a legitimate, honest hook. It does not need an inflated "this will get you the job" claim to be worth building or demoing.
 
@@ -207,7 +207,7 @@ After a live judge preview, a real UI/UX pass is underway on top of the working 
 
 The pitch line stays what's already in "What This Actually Is": we're demonstrating that your face gives off signals you don't control and can't accurately predict, live, using Presage's real classification, not a canned demo. Below are the questions that will actually get asked, answered straight, no hand-waving.
 
-**Operational note:** this section, and the per-player baseline spec elsewhere in this PRD, exist only in this document right now, not in the repo on main or any branch. Get this committed into the repo (as the actual PRD file the team already tracks, or referenced from it) before handing more work to a coding agent against the codebase, otherwise every agent that touches the repo will keep rediscovering "this doesn't exist" instead of building against what's already been decided here.
+**Operational note:** this PRD is committed in the repo as `Hill's Kitchen — PRD.md`, so this section and the per-player baseline spec elsewhere in it are the reference for any further work. The per-player baseline itself is spec only: it is not built yet.
 
 **"How is the metric actually calculated?"** Claim is the 0-100 number a player dials in themselves. A short neutral-face baseline is captured first. Presage then reads live facial signal during the actual question. Composure is that live read expressed relative to the player's own baseline, not a universal scale. Gap is the absolute difference between claim and personalized composure. Score is 100 minus the gap. Every step is real, nothing is estimated or invented.
 
@@ -306,11 +306,11 @@ The pitch line stays what's already in "What This Actually Is": we're demonstrat
 ## Repo Structure
 
 ```
-the-tell/
+delulu-detector/               # the GitHub repo keeps its name; the project is Hill's Kitchen
 ├── README.md                  # project pitch, setup instructions, demo gif
 ├── LICENSE                    # open license for the FOSS category
 ├── arduino/
-│   └── the_tell.ino           # reads dial/button, writes JSON over serial
+│   └── delulu_gauntlet/delulu_gauntlet.ino   # reads dial/button, writes JSON over serial
 ├── pi/
 │   ├── main.py                # serial listener + main loop
 │   ├── vision.py              # OpenCV face detection + overlay, cross-check signal
