@@ -1,4 +1,4 @@
-# Hill's Kitchen — 5-minute judging script
+# What the Hill — 5-minute judging script
 
 Hack the Hill III. Say the lines. Do the actions in brackets. Read only what the screen shows. Do not invent a score, play stand-in audio, or open a fake board.
 

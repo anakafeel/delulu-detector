@@ -53,7 +53,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import config
 
 # Python round type -> the frontend's string round id (frontend/src/data/roundDefs.js).
-# Hill's Kitchen plays 1 / 5 / 6 (labelled Round 1 / 2 / 3: config.ROUND_LABELS); 2 and 3 are
+# What the Hill plays 1 / 5 / 6 (labelled Round 1 / 2 / 3: config.ROUND_LABELS); 2 and 3 are
 # the cut Steady Hands / Retreat, kept so old session rows still render.
 ROUND_KEYS = {1: "reflex", 2: "steady_hands", 3: "retreat", 5: "poker_face", 6: "straight_face"}
 ROUND_DISPLAY_NAMES = {1: "Reflex", 2: "Steady Hands", 3: "Retreat", 5: "Poker Face",
@@ -702,9 +702,9 @@ class GameState:
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
-_NO_DIST_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Hill's Kitchen</title></head>
+_NO_DIST_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>What the Hill</title></head>
 <body style="font-family:sans-serif;background:#111;color:#eee;padding:2em">
-<h1>Hill's Kitchen UI server is running</h1>
+<h1>What the Hill UI server is running</h1>
 <p>No built frontend found at <code>frontend/dist</code>. Build it once with
 <code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code>, or run the dev server
 (<code>npm run dev</code>) and open the URL it prints.</p>

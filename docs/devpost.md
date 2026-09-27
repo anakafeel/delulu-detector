@@ -1,10 +1,10 @@
-# Hill's Kitchen
+# What the Hill
 
 Hack the Hill III. Paste the sections below into the Devpost text fields.
 
 ## What it is
 
-Hill's Kitchen demonstrates that your face gives off signals you do not control and cannot accurately predict, and it does that live.
+What the Hill demonstrates that your face gives off signals you do not control and cannot accurately predict, and it does that live.
 
 One person sets a rotary dial from 0 to 100 for how composed they expect to look, then presses a button to lock the claim. They do one webcam round: Poker Face or Straight Face. Presage SmartSpectra, an on-device vitals and expression SDK, is the reality check. The API key only authorizes the session. Frames are not uploaded for scoring. OpenCV only draws the face box. The locked claim and the Presage reading are compared as a gap, the absolute difference between claim and performance. The score is 100 minus that gap. ElevenLabs speaks the verdict only after both measurements return.
 
@@ -38,4 +38,4 @@ A rotary dial and a button are on an Arduino. A USB webcam is on the computer ru
 
 The repository is public under the MIT license: https://github.com/anakafeel/delulu-detector
 
-The project is Hill's Kitchen. The repository name is unchanged.
+The project is What the Hill. The repository name is unchanged.

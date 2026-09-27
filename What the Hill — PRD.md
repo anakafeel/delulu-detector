@@ -1,4 +1,4 @@
-# Hill's Kitchen — PRD
+# What the Hill — PRD
 
 Sep 26, 2026 · @Saim
 
@@ -6,7 +6,7 @@ Sep 26, 2026 · @Saim
 
 Most people don't know how they'll actually come across in a real high-stakes moment, a walk-in interview, a hard pitch, a tough ask, until they're already in it. That's a real, felt kind of nervous confidence: you can talk yourself into feeling calm and prepared, and your face can be telling a completely different story the whole time. This sits inside metacognitive calibration research (the popular shorthand is the Dunning-Kruger effect, though the actual research area is broader: does your confidence match your actual state), but the everyday version of it is simpler and more personal, the gap between how composed you think you're coming across and how composed you actually look.
 
-**Hill's Kitchen** is a live nervous-confidence reality check built for Hack the Hill III. A player states how nervous or composed they expect to be in a specific high-stakes moment on a physical dial, then goes through a short mock version of that moment on camera. Presage reads real facial-emotion signal live, stress, tension, composure, alongside OpenCV's face tracking, and the two get compared against the player's own claim, end to end, with nothing pre-recorded or simulated anywhere in the loop. An ElevenLabs-voiced narrator calls out the gap the moment it's computed.
+**What the Hill** is a live nervous-confidence reality check built for Hack the Hill III. A player states how nervous or composed they expect to be in a specific high-stakes moment on a physical dial, then goes through a short mock version of that moment on camera. Presage reads real facial-emotion signal live, stress, tension, composure, alongside OpenCV's face tracking, and the two get compared against the player's own claim, end to end, with nothing pre-recorded or simulated anywhere in the loop. An ElevenLabs-voiced narrator calls out the gap the moment it's computed.
 
 ## Mascot / Narrator (the meme layer, doesn't touch the mechanic)
 
@@ -62,7 +62,7 @@ Every round follows the same three-step loop:
 
 Playing multiple rounds back to back is the actual demo moment: the gap should visibly shrink round over round as the player learns their own tells. That's the real, honest, demonstrable claim behind the game, not a promise to fix nervousness or land the interview.
 
-## Hill's Kitchen: Rounds
+## What the Hill: Rounds
 
 | Round | Sensor(s) | Predict | Reality Check |
 | --- | --- | --- | --- |
@@ -154,7 +154,7 @@ What this is explicitly not for tonight: an actual interview-prep tool for someo
 
 Short answer: **not a natural fit, don't force it.**
 
-The Civic Tech Challenge has one hard eligibility requirement: the demo must clearly show a connection between people and government (public services, legislation, civic participation, communication with institutions or representatives). Hill's Kitchen is a self-assessment party game with no government or institutional touchpoint anywhere in the loop. There's no version of the current concept that demonstrates that connection without a fundamental redesign, not a reframe.
+The Civic Tech Challenge has one hard eligibility requirement: the demo must clearly show a connection between people and government (public services, legislation, civic participation, communication with institutions or representatives). What the Hill is a self-assessment party game with no government or institutional touchpoint anywhere in the loop. There's no version of the current concept that demonstrates that connection without a fundamental redesign, not a reframe.
 
 If civic tech were a hard requirement, the honest pivot would be a genuinely different project (for example, a confidence-calibration tool aimed at citizens rating their certainty on a ballot measure or public consultation before seeing expert information). That's a different build, not a repackaging of this one, and was already decided against earlier in scoping.
 
@@ -207,7 +207,7 @@ After a live judge preview, a real UI/UX pass is underway on top of the working 
 
 The pitch line stays what's already in "What This Actually Is": we're demonstrating that your face gives off signals you don't control and can't accurately predict, live, using Presage's real classification, not a canned demo. Below are the questions that will actually get asked, answered straight, no hand-waving.
 
-**Operational note:** this PRD is committed in the repo as `Hill's Kitchen — PRD.md`, so this section and the per-player baseline spec elsewhere in it are the reference for any further work. The per-player baseline itself is spec only: it is not built yet.
+**Operational note:** this PRD is committed in the repo as `What the Hill — PRD.md`, so this section and the per-player baseline spec elsewhere in it are the reference for any further work. The per-player baseline itself is spec only: it is not built yet.
 
 **"How is the metric actually calculated?"** Claim is the 0-100 number a player dials in themselves. A short neutral-face baseline is captured first. Presage then reads live facial signal during the actual question. Composure is that live read expressed relative to the player's own baseline, not a universal scale. Gap is the absolute difference between claim and personalized composure. Score is 100 minus the gap. Every step is real, nothing is estimated or invented.
 
@@ -306,7 +306,7 @@ The pitch line stays what's already in "What This Actually Is": we're demonstrat
 ## Repo Structure
 
 ```
-delulu-detector/               # the GitHub repo keeps its name; the project is Hill's Kitchen
+delulu-detector/               # the GitHub repo keeps its name; the project is What the Hill
 ├── README.md                  # project pitch, setup instructions, demo gif
 ├── LICENSE                    # open license for the FOSS category
 ├── arduino/
