@@ -195,6 +195,11 @@ POKER_TEMPLATES: dict[str, list[str]] = {
         "{player} predicted {claim} and the camera agrees. No follow-up questions.",
         "Smiled {smile} percent of the time, just as {player} predicted. Validated.",
         "{player} dialed {claim} and delivered {perf}. The camera has no notes, and neither do I.",
+        # bro voice
+        "{player}, you said {claim}, you gave {perf}. That's self-awareness, bro. Lowkey scary.",
+        "No cap, {player}. {claim} claimed, {perf} delivered. The camera's got nothing. Respect.",
+        "{player} really said {claim} and meant it. {perf}. Bro is locked in.",
+        "Claim {claim}, reality {perf}. {player}, that's calibrated. Go touch grass, you've earned it.",
     ],
     "mild_over": [
         "{player} said {claim}, the camera said {perf}. A small tell, and I saw it.",
@@ -202,6 +207,11 @@ POKER_TEMPLATES: dict[str, list[str]] = {
         "{smile} percent smile from a claimed {claim}. Close, {player}, but the camera noticed.",
         "{gap} points over, {player}. Your mouth answered before you did.",
         "Cracked after {secs} seconds on a claimed {claim}, {player}. Nearly a poker face.",
+        # bro voice
+        "Bro said {claim}, face said {perf}. Close, {player}, but I saw that.",
+        "{gap} points over, {player}. Lowkey cooked, highkey fixable.",
+        "{player}, you claimed {claim}. The camera said {perf}. Bro, it's giving almost.",
+        "Claimed {claim}, got {perf}. {player}, your face snitched a little. Just a little.",
     ],
     "spicy_over": [
         "A {claim}, {player}? You smiled {smile} percent of the time. That's a tell, not a poker face.",
@@ -209,6 +219,11 @@ POKER_TEMPLATES: dict[str, list[str]] = {
         "{player} dialed {claim}, then grinned at an interview question and scored {perf}.",
         "Claimed {claim}, held a {perf}. {player}, your face answered the question for you.",
         "{gap} points of bluffing, {player}. The camera called it, and so did I.",
+        # bro voice
+        "Bro dialed {claim} and gave {perf}. {player}, that's not a poker face, that's a podcast.",
+        "{player}, a {claim}? Your face got {perf}. Respectfully, you're cooked.",
+        "{gap} points off, {player}. Your face was posting live updates the whole time, bro.",
+        "Claimed {claim}, scored {perf}. {player}, your face said the quiet part out loud.",
     ],
     "delulu_over": [
         "{claim} for poker face, and you smiled {smile} percent of the time? Certified delulu.",
@@ -216,24 +231,44 @@ POKER_TEMPLATES: dict[str, list[str]] = {
         "{gap} points of pure fiction, {player}. Your face folded before the question finished.",
         "{player} said {claim}, the camera said {perf}. As your friend, you have several tells.",
         "Claimed {claim}, scored {perf}. {player}, your face keeps secrets like a group chat.",
+        # bro voice
+        "{player} said {claim}. The camera said {perf}. Bro, that's full delulu. Seek help.",
+        "{gap} points of pure aura loss, {player}. Your face folded instantly.",
+        "Bro claimed {claim} and scored {perf}. {player}, your face has no chill. None.",
+        "{claim}? With a {perf}? {player}, I'm calling your mom. The delulu is terminal.",
     ],
     "mild_under": [
         "{player} claimed only {claim} and held a {perf}. More composed than you think.",
         "{gap} points under, {player}. Your face is calmer than your inner monologue.",
         "Only {smile} percent smile on a claimed {claim}, {player}? Give your poker face some credit.",
         "Claimed {claim}, held a {perf}. Modest and unreadable, {player}, and I'm suspicious.",
+        # bro voice
+        "Bro only said {claim} and pulled a {perf}. {player}, stop being humble, it's weird.",
+        "{player}, {gap} points under. Your face is calmer than your vibes, bro.",
+        "Claimed {claim}, held {perf}. {player}, you're lowkey unreadable. Own it.",
+        "{claim} claimed, {perf} delivered. {player}, bro, your confidence is lagging behind your face.",
     ],
     "spicy_under": [
         "You said {claim} and delivered {perf}, {player}. That's {gap} points of sandbagging. Own it.",
         "{player} dialed {claim}, then took that question like a seasoned diplomat. Why lowball?",
         "Claimed {claim}, scored {perf}. {player}, the camera believes in your poker face more than you do.",
         "Only {smile} percent smile from a self-declared {claim}? Go negotiate something, {player}.",
+        # bro voice
+        "{player} said {claim}, then went full NPC for a {perf}. Why are you sandbagging, bro?",
+        "{gap} points of fake humility, {player}. Bro, just say you're good.",
+        "Bro dialed {claim} and served {perf}. {player}, that's a hustle and I respect it.",
+        "Claimed {claim}, scored {perf}. {player}, stop lowballing, the camera sees your aura.",
     ],
     "delulu_under": [
         "{player} claimed {claim}, then gave the camera nothing and scored {perf}. Reverse delulu.",
         "{gap} points in the wrong direction. {player}, you're a card shark pretending to be a goldfish.",
         "A {claim}, with {smile} percent smile? Stop sandbagging, {player}. The camera sees everything.",
         "{player} dialed {claim} and scored {perf}. Deep humility or a hustle? I'm leaning hustle.",
+        # bro voice
+        "{player} claimed {claim} and scored {perf}. Bro is a final boss pretending to be a tutorial.",
+        "{gap} points in the wrong direction. {player}, that's stone-cold aura hiding behind a tiny number.",
+        "Claimed {claim}? You gave {perf}. {player}, bro, stop lying to the dial.",
+        "{player}, a {claim} from you is criminal. {perf}. The camera wants a rematch.",
     ],
     "void": [
         "That round didn't count, {player}. Reset and try again.",
@@ -419,6 +454,18 @@ POKER_QUESTION_LINES: list[str] = [
     "When were you last wrong about something? A recent one.",
     "We found your old social media posts. Want to explain first?",
     "Why did you leave your last job? The real reason.",
+    "Be honest. How many browser tabs do you have open right now?",
+    "On a scale of one to ten, how good is your rizz?",
+    "If your group chat leaked tomorrow, how cooked would you be?",
+    "Who was the last person you left on read, and why?",
+    "What was your screen time yesterday, and are you proud of it?",
+    "Can you describe your last situationship in three words?",
+    "What would your mom say if she saw your For You page?",
+    "Is your life giving main character, or side quest?",
+    "What's the pettiest reason you've ever unfollowed someone?",
+    "Have you ever won an argument in the shower? Just the shower one?",
+    "Six or seven? How confident are you feeling right now?",
+    "Have you ever pretended to understand a meeting? What was it about?",
 ]
 
 PRESSURE_QUESTION_LINES: list[str] = [

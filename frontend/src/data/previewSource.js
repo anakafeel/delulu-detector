@@ -223,6 +223,7 @@ function row(round, type, id, player, claim, actual, gap, verdict, unit) {
     actual_unit: unit || (type === 1 ? 'ms' : 'composure'),
     gap,
     score: Math.max(0, Math.round(100 - gap)),
+    tier: gap <= 10 ? 'validated' : gap <= 25 ? 'mild' : gap <= 45 ? 'spicy' : 'delulu',
     verdict_text: verdict,
     verdict_status: 'ready',
     extra: type === 1 ? {} : { presage_samples: 38, frames: 92, fps: 15.3 },
