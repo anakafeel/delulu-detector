@@ -1,8 +1,78 @@
-# brag plan: What the Hill (new logo)
-Source: preview build of the real React UI, recorded 2026-09-27. Headless Chromium via brag-output/work/capture.mjs against http://127.0.0.1:47811/index.html?preview=1 (frontend/dist). No Arduino, no camera, no live /api. 660 frames at 30fps, viewport 1600x900, device scale 1.8.
-Logo: the Imagine post https://grok.com/imagine/post/377ab1d1-4481-4e38-8fc2-cc60f9561cc0, saved as frontend/src/assets/logo.png and frontend/public/favicon.png. It shows on the idle screen and in the header on the booth screens.
-Angle: the gap between your claim and your face. The walk types the name Saim, then plays the preview: idle, Poker Face dial, the question, and the 72 vs 36 reveal.
-Tone: the existing 20s 120 BPM bed in brag-output/work/music.wav, ducked, fading out over the last two seconds. No verdict voice on this take.
-Storyboard (22 s): 0-4 idle, fox logo, "Step up to the rig" | ~4-10 name locked, dial climbing | ~10-18.5 question and live read | 18.5-22 reveal, header logo, 72 vs 36, gap 36.
-Poster: brag-output/brag.jpg is the idle frame (about 1 s) with the new logo.
-The previous live-round brag is kept at brag-output/previous/live-2026-09-27/.
+# Brag Plan: What the Hill
+
+## What is this app?
+A live booth that locks the composure you claim, reads your face with Presage, and shows the gap.
+
+## The angle
+The gap between the number on the dial and the face on the camera. This cut is one real Poker Face round from the live Vite booth, not a preview walk.
+
+## Hook (first 2-3 seconds)
+anakafeel is on the claim screen, dial in hand, camera still off. The lock is the cut.
+
+## Key moments (the middle)
+- The Logitech feed actually opens: face box, claim 68 locked, composure sitting at 2, the question on screen.
+- The question spoken this round: "What would your mom say if she saw your For You page?"
+
+## Outro / punchline
+Reveal holds. Claimed 68, composure 0, gap 68. The narrator: "68 points of pure aura loss, anakafeel. Your face folded instantly."
+
+## User flow worth showing
+Name already in (anakafeel) → dial and physical claim lock → camera window → reveal of claim against composure.
+
+## Tone
+- Preset: default
+- Creative direction: the live gap, dry, no fake preview frame over the camera
+- Interpretation: short holds, the booth UI is the picture, type stays the product's own
+
+## Format: landscape — 1920x1080
+## Duration: 21
+
+## Visual identity (from the project)
+- Background: #0a0a0f
+- Accent: #22e5ff (claim) and #c58bff (composure)
+- Text: #f5f4f0
+- Display font: Bungee
+- Body font: JetBrains Mono
+- Strongest visual element: the live camera with the face box, then 68 against 0
+
+## Share copy (draft)
+anakafeel claimed a 68 poker face. The camera read 0. Gap 68.
+
+## Audio direction
+- Role: warm bed under the round's own ElevenLabs question and verdict
+- Music: the existing 20s bed at brag-output/work/music.wav (same bed as the previous cut)
+- Music treatment: low under the picture, ducked while the question and the verdict play, fade at the end
+- Music cue guidance: natural timing. The lock and the reveal are the real round; do not slide them onto a beat.
+- Audio-reactive treatment: skipped. A glow on top of the face would cover the camera. No extraction helper was wired.
+- SFX posture: sparse. One click as the camera opens, one soft hit as the reveal lands.
+- Audio-coupled moments: question voice with the face, verdict voice with 68 vs 0
+- Restraint rule: do not cover the camera, do not add a second narrator
+
+## Storyboard
+
+### Scene 1 — Claim — 1.5s
+Dial still moving, camera off, name anakafeel on the live booth. Text already on the UI.
+Sequential/interaction: the dial is the interaction
+Audio intent: bed in, quiet
+Audio-coupled idea: none
+Music: low bed
+Transition mood: hard → Scene 2
+
+### Scene 2 — Face — 6.5s
+Real camera. Claim locked at 68. Composure live at 2. Question on screen. Face box stays visible the whole scene.
+Sequential/interaction: the read is live, not simulated
+Audio intent: ElevenLabs question, bed ducked
+Audio-coupled idea: the spoken question
+Music: ducked
+Transition mood: hard → Scene 3
+
+### Scene 3 — Reveal — 13s
+Claimed 68, composure 0, gap 68, score 32, the verdict line held long enough to read.
+Sequential/interaction: none
+Audio intent: ElevenLabs verdict, then the bed returns and fades
+Audio-coupled idea: the spoken verdict as the numbers are already up
+Music: ducked, then fade
+Transition mood: hold
+
+**Music mood for this video:** the same short upbeat bed, kept under the voice
+**Audio summary:** bed, question while the face is up, verdict on the reveal, fade out
