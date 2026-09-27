@@ -188,51 +188,52 @@ STEADY_TEMPLATES: dict[str, list[str]] = {
 # "over" = claimed a stone face and cracked, "under" = doubted themselves and
 # stayed stony. No false starts or timeouts in this round.
 POKER_TEMPLATES: dict[str, list[str]] = {
+    # Few full stops: the voice pauses at each one, so short sentences read as slow.
     "validated": [
-        "{player} claimed {claim}, held a {perf}. You know exactly how readable you are. Unsettling.",
-        "Claim {claim}, reality {perf}. {player}, tough question, straight answer. Validated.",
-        "{player} predicted {claim} and the camera agrees. I have no follow-up questions.",
-        "Smiled {smile} percent of the time, just as {player} predicted. Validated. Great in negotiations.",
-        "{player} dialed {claim}, delivered {perf}. The camera has no notes. Neither do I.",
+        "{player} claimed {claim} and held a {perf}. You know exactly how readable you are.",
+        "Claim {claim}, reality {perf}. Tough question, straight answer. Validated, {player}.",
+        "{player} predicted {claim} and the camera agrees. No follow-up questions.",
+        "Smiled {smile} percent of the time, just as {player} predicted. Validated.",
+        "{player} dialed {claim} and delivered {perf}. The camera has no notes, and neither do I.",
     ],
     "mild_over": [
-        "{player} said {claim}. The camera said {perf}. A small tell. I saw it.",
-        "Claimed {claim}, held a {perf}. Composed-ish, {player}. The ish is doing heavy lifting.",
-        "{smile} percent smile from a claimed {claim}. Close, {player}. But the camera noticed.",
+        "{player} said {claim}, the camera said {perf}. A small tell, and I saw it.",
+        "Claimed {claim}, held a {perf}. Composed-ish, {player}, and the ish is doing heavy lifting.",
+        "{smile} percent smile from a claimed {claim}. Close, {player}, but the camera noticed.",
         "{gap} points over, {player}. Your mouth answered before you did.",
-        "Cracked after {secs} seconds, {player}. Claimed {claim}. Nearly a poker face. Nearly.",
+        "Cracked after {secs} seconds on a claimed {claim}, {player}. Nearly a poker face.",
     ],
     "spicy_over": [
-        "{player}, a {claim}? You smiled {smile} percent of the time. That's not a poker face, that's a tell.",
-        "Claimed {claim}, cracked in {secs} seconds. {player}, please never negotiate your own salary.",
-        "{player} dialed {claim}, then grinned at an interview question. Reality: {perf}. Explain yourself.",
+        "A {claim}, {player}? You smiled {smile} percent of the time. That's a tell, not a poker face.",
+        "Claimed {claim}, cracked in {secs} seconds. {player}, never negotiate your own salary.",
+        "{player} dialed {claim}, then grinned at an interview question and scored {perf}.",
         "Claimed {claim}, held a {perf}. {player}, your face answered the question for you.",
-        "{gap} points of bluffing, {player}. The camera called it. So did I.",
+        "{gap} points of bluffing, {player}. The camera called it, and so did I.",
     ],
     "delulu_over": [
-        "{claim} for poker face? You smiled {smile} percent of the time. Certified delulu. Next candidate.",
+        "{claim} for poker face, and you smiled {smile} percent of the time? Certified delulu.",
         "{player} claimed {claim}, cracked in {secs} seconds. That's not a poker face, that's a billboard.",
-        "{gap} points of pure fiction, {player}. Your face folded before the question even finished.",
-        "{player} said {claim}. The camera said {perf}. As your friend: you have a tell. Several.",
+        "{gap} points of pure fiction, {player}. Your face folded before the question finished.",
+        "{player} said {claim}, the camera said {perf}. As your friend, you have several tells.",
         "Claimed {claim}, scored {perf}. {player}, your face keeps secrets like a group chat.",
     ],
     "mild_under": [
         "{player} claimed only {claim} and held a {perf}. More composed than you think.",
         "{gap} points under, {player}. Your face is calmer than your inner monologue.",
-        "Only {smile} percent smile, {player}? You dialed {claim}. Give your poker face some credit.",
-        "Claimed {claim}, held a {perf}. {player}, modest and unreadable. I'm suspicious.",
+        "Only {smile} percent smile on a claimed {claim}, {player}? Give your poker face some credit.",
+        "Claimed {claim}, held a {perf}. Modest and unreadable, {player}, and I'm suspicious.",
     ],
     "spicy_under": [
-        "You said {claim}, you delivered {perf}. {gap} points of sandbagging, {player}. Stone cold. Own it.",
+        "You said {claim} and delivered {perf}, {player}. That's {gap} points of sandbagging. Own it.",
         "{player} dialed {claim}, then took that question like a seasoned diplomat. Why lowball?",
         "Claimed {claim}, scored {perf}. {player}, the camera believes in your poker face more than you do.",
-        "Only {smile} percent smile from a self-declared {claim}? {player}, go negotiate something.",
+        "Only {smile} percent smile from a self-declared {claim}? Go negotiate something, {player}.",
     ],
     "delulu_under": [
-        "{player} claimed {claim}, then gave the camera absolutely nothing. {perf}. Reverse delulu. Are you okay?",
+        "{player} claimed {claim}, then gave the camera nothing and scored {perf}. Reverse delulu.",
         "{gap} points in the wrong direction. {player}, you're a card shark pretending to be a goldfish.",
-        "{claim}? {smile} percent smile. {player}, stop sandbagging. The camera sees everything.",
-        "{player} dialed {claim} and scored {perf}. Either deep humility or a hustle. I'm leaning hustle.",
+        "A {claim}, with {smile} percent smile? Stop sandbagging, {player}. The camera sees everything.",
+        "{player} dialed {claim} and scored {perf}. Deep humility or a hustle? I'm leaning hustle.",
     ],
     "void": [
         "That round didn't count, {player}. Reset and try again.",
@@ -408,15 +409,15 @@ def build_verdict_text(result: RoundResult, player: str, rng: Optional[random.Ra
 # Party-safe: pressure, not cruelty; never about appearance or identity.
 # ---------------------------------------------------------------------------
 POKER_QUESTION_LINES: list[str] = [
-    "So. Why should we hire you, and not literally anyone else?",
-    "What was your biggest failure? Take your time. We're recording.",
-    "Your last manager described you as 'a lot'. What do you think they meant?",
-    "Where do you see yourself in five years? Be honest. Is it here?",
-    "What's your greatest weakness? And please don't say perfectionism.",
+    "Why should we hire you, and not literally anyone else?",
+    "What was your biggest failure? Take your time, we're recording.",
+    "Your last manager called you 'a lot'. What did they mean?",
+    "Where do you see yourself in five years? Honestly, is it here?",
+    "What's your greatest weakness? And don't say perfectionism.",
     "Your references didn't call us back. Any idea why?",
     "On a scale of one to ten, how much of your resume is actually true?",
-    "When were you last wrong about something? A recent one, please.",
-    "We found your old social media posts. Would you like to explain first?",
+    "When were you last wrong about something? A recent one.",
+    "We found your old social media posts. Want to explain first?",
     "Why did you leave your last job? The real reason.",
 ]
 
@@ -530,6 +531,8 @@ def synthesize(
     headers = {"xi-api-key": api_key, "Content-Type": "application/json",
                "Accept": "audio/mpeg"}
     payload = {"text": text, "model_id": model_id}
+    if config.ELEVENLABS_SPEED != 1.0:
+        payload["voice_settings"] = {"speed": config.ELEVENLABS_SPEED}
     deadline = time.monotonic() + timeout_s
     cancel = threading.Event()
     outcome: dict = {}

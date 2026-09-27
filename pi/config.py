@@ -192,6 +192,10 @@ ELEVENLABS_BASE_URL = os.environ.get("ELEVENLABS_BASE_URL", "https://api.elevenl
 ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_128"
 # If the TTS call takes longer than this, give up and use the fallback line.
 ELEVENLABS_TIMEOUT_S = _env_float("ELEVENLABS_TIMEOUT_S", 3.0)
+# Speaking rate sent as voice_settings.speed (ElevenLabs accepts 0.7-1.2; 1.0 = the voice's own
+# pace, and then no voice_settings are sent at all). George at 1.0 pauses long at every period;
+# 1.15 measured about 9% shorter on the same line with no change in response time.
+ELEVENLABS_SPEED = min(1.2, max(0.7, _env_float("ELEVENLABS_SPEED", 1.15)))
 
 # Presage SmartSpectra. The key only authorizes the on-device SDK.
 # Official name is SMARTSPECTRA_API_KEY. PRESAGE_API_KEY is accepted too.
@@ -236,6 +240,11 @@ UI_IDLE_AFTER_S = 90.0     # no activity for this long while armed -> back to th
 UI_HISTORY_LIMIT = 300     # most recent logged rounds sent to the browser (leaderboard + curve)
 UI_MOCK_PAUSE_S = 5.0      # --mock --ui: pause after each result so the reveal can be seen
 UI_MOCK_DIAL_STEP_S = 0.15  # --mock --ui: simulated knob turn, seconds between dial lines
+# Poker Face with --ui: the player types their name on the booth screen before dialing
+# (POST /api/player). Until someone does, and again after UI_IDLE_AFTER_S with no activity,
+# rounds are logged under this name. Without --ui, --player is used as before.
+UI_DEFAULT_PLAYER = "Guest"
+UI_PLAYER_NAME_MAX = 16    # characters kept from a typed name (it has to fit the leaderboard)
 
 # Live camera in the browser for the face rounds (--ui with a real camera or --video):
 # GET /api/camera.mjpg. The stream reuses the frames the measurement already reads (the camera is

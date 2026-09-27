@@ -534,3 +534,98 @@ def test_poker_vision_failure_reaches_the_ui_as_a_notice(monkeypatch, tmp_path):
     main.main(["--mock", "--round", "5", "--rounds", "1", "--mock-delay", "0", "--no-audio",
                "--db", str(tmp_path / "s.db"), "--ui", "--ui-host", "127.0.0.1", "--ui-port", "0"])
     assert rejected and "Camera / vision error" in rejected[0]
+
+
+# ------------------------------------------------------------- Poker Face name entry
+@pytest.mark.parametrize("raw,expected", [
+    ("  Ada  ", "Ada"), ("Ada\nLovelace", "Ada Lovelace"), ("x" * 40, "x" * config.UI_PLAYER_NAME_MAX),
+    ("", None), ("   ", None), ("\t\x00", None), (None, None), (42, None),
+])
+def test_clean_player_name(raw, expected):
+    assert ui_server.clean_player_name(raw) == expected
+
+
+def test_typed_name_is_the_round_player_until_the_rig_goes_idle(clock):
+    s = GameState(clock=clock, reveal_hold_s=10, idle_after_s=60)
+    s.session_started("Guest", 5, "sess", name_entry=True)
+    snap = s.snapshot()
+    assert snap["nameEntry"] is True and snap["player"] == "Guest" and snap["playerNamed"] is False
+    assert s.set_player("  Ada ") == "Ada"
+    assert s.round_player() == "Ada" and s.snapshot()["playerNamed"] is True
+    s.on_status(status("mode", round_id=5))
+    clock.t += 50
+    s.dial(40)                                   # still playing: the name stays
+    clock.t += 59
+    assert s.round_player() == "Ada"
+    clock.t += 2                                 # idle timeout, attract screen: the next person
+    assert s.snapshot()["screen"] == "idle"
+    assert s.round_player() == "Guest" and s.snapshot()["playerNamed"] is False
+    assert s.set_player("") is None and s.round_player() == "Guest"
+
+
+def post_json(srv, path, payload):
+    conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=5)
+    body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+    conn.request("POST", path, body=body, headers={"Content-Type": "application/json"})
+    resp = conn.getresponse()
+    data = resp.read()
+    conn.close()
+    return resp, data
+
+
+def test_post_player_sets_the_name(server, state):
+    resp, body = post_json(server, "/api/player", {"name": " Grace  Hopper "})
+    assert resp.status == 200 and json.loads(body) == {"ok": True, "player": "Grace Hopper"}
+    assert resp.getheader("Access-Control-Allow-Origin") == "*"
+    assert json.loads(get(server, "/api/state")[1])["player"] == "Grace Hopper"
+    assert post_json(server, "/api/player", {"name": "  "})[0].status == 400
+    assert post_json(server, "/api/player", b"not json")[0].status == 400
+    assert post_json(server, "/api/player", {"name": "x" * 2000})[0].status == 400    # body too big
+    assert post_json(server, "/api/nope", {"name": "a"})[0].status == 404
+    assert state.round_player() == "Grace Hopper"
+
+
+def test_main_poker_face_logs_the_typed_name(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    monkeypatch.setattr(main, "linger_for_ui", lambda srv: None)
+    real_start = main.start_ui
+
+    def start_and_type_a_name(args, session_id, log):
+        st, srv = real_start(args, session_id, log)
+        assert st.snapshot()["player"] == config.UI_DEFAULT_PLAYER and st.snapshot()["nameEntry"]
+        st.set_player("Ada")
+        return st, srv
+
+    monkeypatch.setattr(main, "start_ui", start_and_type_a_name)
+    db = tmp_path / "s.db"
+    assert main.main(["--mock", "--round", "5", "--rounds", "2", "--seed", "3", "--mock-delay", "0",
+                      "--no-audio", "--db", str(db), "--ui", "--ui-host", "127.0.0.1",
+                      "--ui-port", "0"]) == 0
+    with SessionLog(db) as log:
+        assert {r["player"] for r in log.rounds()} == {"Ada"}
+        assert [r["round_number"] for r in log.rounds()] == [1, 2]
+
+
+def test_name_entry_is_poker_face_with_ui_only(monkeypatch, tmp_path):
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    db = tmp_path / "s.db"
+    assert main.main(["--mock", "--round", "5", "--rounds", "2", "--seed", "3", "--mock-delay", "0",
+                      "--no-audio", "--db", str(db)]) == 0
+    with SessionLog(db) as log:
+        assert {r["player"] for r in log.rounds()} == {"player1"}      # no --ui: unchanged
+
+
+def test_typing_a_name_on_the_attract_screen_wakes_the_dial(clock):
+    s = GameState(clock=clock, reveal_hold_s=10, idle_after_s=60)
+    s.session_started("Guest", 5, "sess", name_entry=True)
+    s.set_player("Early")                        # board not armed yet: stays on the attract screen
+    assert s.snapshot()["screen"] == "idle"
+    s.on_status(status("mode", round_id=5))
+    clock.t += 61                                # idle again
+    assert s.snapshot()["screen"] == "idle"
+    s.set_player("Bo")
+    snap = s.snapshot()
+    assert snap["screen"] == "predicting" and snap["player"] == "Bo"
+    assert snap["activeRound"]["round_id"] == "poker_face"

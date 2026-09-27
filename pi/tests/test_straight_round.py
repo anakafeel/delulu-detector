@@ -283,7 +283,7 @@ def test_poker_live_state_has_no_straight_keys():
     feed = CameraFeed(renderer=lambda f, o, info: b"jpeg")
     feed.begin("measuring", 6.0)
     feed.offer(object(), vision.Observation(True, False), False, 1.0, extra={"phase": "watching"})
-    assert set(feed.live_state()) == {"mode", "face", "smiling", "smilePct"}
+    assert set(feed.live_state()) == {"mode", "face", "smiling", "smilePct", "remainingS", "windowS"}
 
 
 def test_straight_overlay_renders_every_phase():

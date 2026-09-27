@@ -683,7 +683,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                                              "Under Pressure = --round 6)")
     ap.add_argument("--port", default=config.SERIAL_PORT, help=f"serial port (default {config.SERIAL_PORT})")
     ap.add_argument("--baud", type=int, default=config.SERIAL_BAUD, help=f"baud rate (default {config.SERIAL_BAUD})")
-    ap.add_argument("--player", default="player1", help="player name / id for the session log")
+    ap.add_argument("--player", default=None,
+                    help="player name / id for the session log (default player1). With --ui and "
+                         f"--round 5, players type their name on screen instead; this (default "
+                         f"{config.UI_DEFAULT_PLAYER}) is only used until someone does")
     ap.add_argument("--round", type=int, choices=sorted(config.ROUND_NAMES), default=None,
                     help="internal round id: 1 = Reflex (Round 1, default), 5 = Poker Face (Round 2), "
                          "6 = Straight Face Under Pressure (Round 3); 2 = Steady Hands needs "
@@ -730,6 +733,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         args.round = config.DEFAULT_ROUND
     if args.video and args.round not in FACE_ROUNDS:
         ap.error("--video is for the face rounds (--round 5 or 6)")
+
+    # Poker Face with the browser UI: the name is typed on the booth screen before each player dials.
+    args.name_entry = bool(args.ui and args.round == ROUND_POKER and not args.calibrate)
+    if args.player is None:
+        args.player = config.UI_DEFAULT_PLAYER if args.name_entry else "player1"
 
     if args.leaderboard:
         with SessionLog(args.db) as log:
@@ -801,7 +809,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"Upgraded {args.db} to schema v2 (new columns only); copy of the old file: {log.migration_backup}")
     session_id = new_session_id()
     key_state = "set" if config.ELEVENLABS_API_KEY else "NOT set -> fallback verdicts"
-    print(f"The Tell | session {session_id} | player {args.player} | "
+    who = (f"players type their names on screen ({args.player} until someone does)"
+           if args.name_entry else f"player {args.player}")
+    print(f"The Tell | session {session_id} | {who} | "
           f"{round_title(args.round)} | db {args.db}")
     print(f"ElevenLabs key {key_state} | TTS timeout {config.ELEVENLABS_TIMEOUT_S}s")
     if poker is not None:
@@ -826,10 +836,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if ui is not None:
                     ui.on_status(status)
                 continue
+            player = args.player
             claim = parse_claim(line)
             if claim is not None:
                 measuring = (ui is not None and poker is not None
                              and claim["round_id"] == poker.round_id)
+                if measuring and args.name_entry:
+                    player = ui.round_player()           # the name typed before this claim
+                    print(f"   player: {player}")
                 if measuring:
                     ui.claim_locked(claim["round_id"], claim["claim"])
                 reading = run_face_claim(claim, poker, args.round)
@@ -857,7 +871,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     ui.round_rejected("Sensor was resting on the table, not held. Pick it up and "
                                       "hold it, then press the button again. Not scored.")
                 continue
-            process_reading(reading, args.player, session_id, log, play_audio=not args.no_audio, ui=ui)
+            process_reading(reading, player, session_id, log, play_audio=not args.no_audio, ui=ui)
             if ui is not None and args.mock:
                 time.sleep(config.UI_MOCK_PAUSE_S)      # let the reveal be seen between mock rounds
         if ui_srv is not None and args.mock:
@@ -888,7 +902,8 @@ def start_ui(args, session_id: str, log: SessionLog):
     if not getattr(args, "ui", False):
         return None, None
     state = ui_server.GameState()
-    state.session_started(args.player, args.round, session_id, mock=args.mock)
+    state.session_started(args.player, args.round, session_id, mock=args.mock,
+                          name_entry=getattr(args, "name_entry", False))
     state.refresh_from_log(log)
     srv = ui_server.UIServer(state, host=args.ui_host, port=args.ui_port)
     if not srv.start():

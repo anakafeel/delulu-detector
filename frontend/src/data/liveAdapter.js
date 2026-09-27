@@ -47,6 +47,10 @@ export function toUiResult(r) {
     // The Pi's unit is what was scored. The round def is only a fallback.
     actual_unit: scored ? (UNIT_SUFFIX[r.actual_unit] ?? def?.actual_unit ?? r.actual_unit ?? '') : '',
     gap: scored ? Math.round(r.gap) : 100,
+    // The Pi's one-decimal values, for the on-screen math (|claim - composure| = gap):
+    // the rounded big numbers above can be one off from each other.
+    actual_exact: scored ? r.actual : null,
+    gap_exact: scored ? r.gap : null,
     verdict_text: r.verdict_text ?? '',
   }
 }
@@ -56,6 +60,8 @@ export function toUiState(s) {
     ...s,
     screen: s.screen ?? 'idle',
     player: s.player ?? null,
+    nameEntry: s.nameEntry === true,
+    playerNamed: s.playerNamed === true,
     activeRound: toActiveRound(s.activeRound),
     liveClaim: s.liveClaim ?? null,
     latestResult: toUiResult(s.latestResult),

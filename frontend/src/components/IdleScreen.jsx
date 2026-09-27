@@ -1,15 +1,17 @@
 import { motion } from 'motion/react'
 import { GAME_ROUNDS } from '../data/roundDefs'
+import NameEntry from './NameEntry'
 
 const MARQUEE_TEXT = GAME_ROUNDS.map((r) => `ROUND ${r.label}: ${r.round_name.toUpperCase()}`).join('   ///   ')
 
-export default function IdleScreen() {
+// names: the name-entry state (App), when this session asks players for their name.
+export default function IdleScreen({ names, onHelp }) {
   return (
     <div className="relative flex h-full flex-col items-center justify-center overflow-hidden">
       <Glow className="left-[8%] top-[15%] bg-claim" delay={0} />
       <Glow className="right-[10%] top-[55%] bg-reality" delay={2.4} />
 
-      <p className="anim-fade-in-up font-game text-sm uppercase tracking-[0.5em] text-ink-dim">
+      <p className="anim-fade-in-up font-game text-data uppercase tracking-[0.5em] text-ink-dim">
         The Tell
       </p>
 
@@ -19,23 +21,34 @@ export default function IdleScreen() {
         the rig
       </h1>
 
-      <div
-        className="anim-fade-in mt-8 flex items-center gap-3 font-game text-lg uppercase tracking-[0.3em] text-ink-dim"
-        style={{ animationDelay: '0.4s' }}
-      >
-        <span>call your composure. your face will fact-check you.</span>
-        <motion.span
-          className="inline-block h-5 w-3 bg-claim"
-          animate={{ opacity: [1, 1, 0, 0] }}
-          transition={{ duration: 1, repeat: Infinity, times: [0, 0.5, 0.5, 1] }}
-        />
-      </div>
+      {names ? (
+        <div className="anim-fade-in relative z-10 mt-8 flex w-full justify-center" style={{ animationDelay: '0.3s' }}>
+          <NameEntry
+            entry={names}
+            variant="prompt"
+            lead="Call your composure. Your face will fact-check you. Who's first?"
+            onHelp={onHelp}
+          />
+        </div>
+      ) : (
+        <div
+          className="anim-fade-in mt-8 flex items-center gap-3 font-game text-data uppercase tracking-[0.25em] text-ink-dim"
+          style={{ animationDelay: '0.4s' }}
+        >
+          <span>call your composure. your face will fact-check you.</span>
+          <motion.span
+            className="inline-block h-6 w-3 bg-claim"
+            animate={{ opacity: [1, 1, 0, 0] }}
+            transition={{ duration: 1, repeat: Infinity, times: [0, 0.5, 0.5, 1] }}
+          />
+        </div>
+      )}
 
-      <div className="absolute bottom-10 w-full overflow-hidden border-y border-ink-faint/40 py-3">
+      <div className="absolute bottom-8 w-full overflow-hidden border-y border-ink-faint/40 py-3">
         <motion.div
-          className="flex w-max gap-0 whitespace-nowrap font-display text-sm tracking-[0.35em] text-ink-faint"
+          className="flex w-max gap-0 whitespace-nowrap font-display text-data tracking-[0.3em] text-ink-dim"
           animate={{ x: ['0%', '-50%'] }}
-          transition={{ duration: 22, repeat: Infinity, ease: 'linear' }}
+          transition={{ duration: 26, repeat: Infinity, ease: 'linear' }}
         >
           <span className="px-4">{MARQUEE_TEXT}</span>
           <span className="px-4">{MARQUEE_TEXT}</span>

@@ -6,23 +6,41 @@
   --color-surface: #14131c;
   --color-surface-2: #1c1a26;
 
-  /* ink */
+  /* ink. Booth rule: anything that carries information is at least 5.5:1 on void
+     (washed-out screens and venue glare eat contrast); dim is ~10:1, ink ~18:1. */
   --color-ink: #f5f4f0;
-  --color-ink-dim: #8b899a;
-  --color-ink-faint: #4d4b5c;
+  --color-ink-dim: #b8b6c6;
+  --color-ink-faint: #8a889a;
 
   /* fixed roles: claim vs reality, always labeled, never used interchangeably */
   --color-claim: #22e5ff;
-  --color-reality: #b45cff;
+  --color-reality: #c58bff;
 
   /* status scale (gap severity) - reserved, always paired with a number/verdict */
   --color-good: #22c55e;
   --color-warning: #eab308;
   --color-serious: #f97316;
-  --color-critical: #ef233c;
+  --color-critical: #ff5468;
 
   --font-display: "Bungee", system-ui, sans-serif;
   --font-game: "JetBrains Mono", ui-monospace, monospace;
+
+  /* One type scale for the booth, read from 3-5 feet. Everything on screen uses one of these.
+     headline  the question and the verdict: the line a passerby reads across the table
+     stat      the big numbers (claim, composure, gap)
+     title     round name, phase, player name
+     data      labels and readouts under the numbers (claim / gap / score / composure)
+     meta      round number, counts, footnotes: smallest, still 16px or more */
+  --text-headline: clamp(2.25rem, 3.3vw, 4.25rem);
+  --text-headline--line-height: 1.12;
+  --text-stat: clamp(4.5rem, 7.5vw, 8.5rem);
+  --text-stat--line-height: 1;
+  --text-title: clamp(1.75rem, 2.3vw, 3rem);
+  --text-title--line-height: 1.1;
+  --text-data: clamp(1.25rem, 1.45vw, 1.875rem);
+  --text-data--line-height: 1.25;
+  --text-meta: clamp(1rem, 1.05vw, 1.3rem);
+  --text-meta--line-height: 1.35;
 }
 
 html, body, #root {
@@ -110,8 +128,8 @@ body {
   100% { opacity: 1; transform: scale(1) rotate(-2deg); }
 }
 .anim-stamp-in {
-  animation: stamp-in 0.5s cubic-bezier(0.2, 0.8, 0.3, 1.1) both;
-  animation-delay: 0.45s;
+  /* No delay: the line only arrives once the audio is ready, don't hold it back further. */
+  animation: stamp-in 0.4s cubic-bezier(0.2, 0.8, 0.3, 1.1) both;
 }
 
 @keyframes pop-in {
@@ -177,4 +195,20 @@ body {
 }
 .quiet-pulse {
   animation: quiet-pulse 1.8s ease-in-out infinite;
+}
+
+/* Phase frame: the camera screen's border says which phase a round is in, so a
+   glance from across the room is enough (white = who's playing, cyan = setting
+   the claim, purple = the face is being read). */
+.phase-frame {
+  box-shadow: inset 0 0 0 8px var(--phase-color), inset 0 0 60px -10px var(--phase-color);
+  transition: box-shadow 300ms ease;
+}
+
+@keyframes caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.caret-blink {
+  animation: caret-blink 1s steps(1) infinite;
 }
