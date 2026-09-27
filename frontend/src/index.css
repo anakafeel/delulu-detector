@@ -50,7 +50,6 @@ body {
   color: var(--color-ink);
   font-family: var(--font-game);
   overflow: hidden;
-  cursor: none;
 }
 
 /* Faint scanline texture only — no blend mode, no vignette. A blended

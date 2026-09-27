@@ -1,0 +1,7 @@
+{
+  "duration": 21,
+  "maxStaticSec": 3,
+  "assertions": [
+    { "kind": "keepsMoving", "withinSelector": "#root" }
+  ]
+}

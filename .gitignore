@@ -45,3 +45,6 @@ ruvector.db
 # Round 5 joke / question clips are generated per machine (pi/make_fallbacks.py --jokes)
 assets/jokes/*.part
 assets/jokes/*.mp3
+
+# Spoken pitch stays on this machine
+docs/pitch.md
