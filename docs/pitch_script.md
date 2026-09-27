@@ -1,4 +1,4 @@
-# The Tell — 5-minute judging script
+# Hill's Kitchen — 5-minute judging script
 
 Hack the Hill III. Say the lines. Do the actions in brackets. Read only what the screen shows. Do not invent a score, play stand-in audio, or open a fake board.
 
@@ -24,7 +24,7 @@ Look at the webcam and hold still. Poker Face is the short hold. Straight Face r
 
 The box on the face is OpenCV. It only shows that a face is in frame. It does not score the round.
 
-The reality check is Presage SmartSpectra, an on-device vitals and expression SDK. The API key only authorizes the session. Frames are not uploaded for scoring.
+The reality check is Presage SmartSpectra, an on-device vitals and expression SDK. The API key only authorizes the session. Frames are not uploaded for scoring. The only photo is opt-in: press Y after your name, and one frame from mid-question sits in memory on this laptop for the leaderboard until the game stops.
 
 ElevenLabs speaks only after both measurements are back: the locked dial claim, and the Presage reading. The voice does not invent a score.
 

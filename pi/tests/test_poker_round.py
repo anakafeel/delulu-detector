@@ -466,7 +466,7 @@ def _run_without_cv2(tmp_path, *args):
     blocker.mkdir(parents=True)
     (blocker / "cv2.py").write_text("raise ImportError('No module named cv2 (blocked by test)')\n")
     import os
-    env = {**os.environ, "PYTHONPATH": str(blocker), "ELEVENLABS_API_KEY": ""}
+    env = {**os.environ, "PYTHONPATH": str(blocker), "ELEVENLABS_API_KEY": "", "TIGER_DATA_URL": ""}
     return subprocess.run([sys.executable, str(PI_DIR / "main.py"), *args], env=env,
                           capture_output=True, text=True, timeout=60)
 

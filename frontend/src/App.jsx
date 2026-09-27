@@ -127,7 +127,7 @@ function BoothShell({ state, names, onHelp }) {
 
       <header className="relative z-10 mb-5 flex items-center justify-between px-1">
         <span className="font-display text-title tracking-widest text-ink">
-          THE<span className="text-claim">.</span>TELL
+          HILL&apos;S <span className="text-claim">KITCHEN</span>
         </span>
         <button
           type="button"
@@ -156,7 +156,7 @@ function BoothShell({ state, names, onHelp }) {
         </main>
 
         <aside className="flex flex-col gap-5 overflow-y-auto rounded-2xl border border-ink-faint/25 bg-surface/60 p-5">
-          <Leaderboard history={state.history} />
+          <Leaderboard history={state.history} photos={state.photos} />
           <div className="border-t border-ink-faint/20 pt-5">
             <CalibrationCurve player={state.player} history={state.history} />
           </div>

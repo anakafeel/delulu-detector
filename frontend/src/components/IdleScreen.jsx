@@ -12,7 +12,7 @@ export default function IdleScreen({ names, onHelp }) {
       <Glow className="right-[10%] top-[55%] bg-reality" delay={2.4} />
 
       <p className="anim-fade-in-up font-game text-data uppercase tracking-[0.5em] text-ink-dim">
-        The Tell
+        Hill's Kitchen
       </p>
 
       <h1 className="anim-fade-scale-in mt-4 text-center font-display text-6xl leading-tight text-ink [text-shadow:0_0_24px_var(--color-claim),0_0_60px_rgba(34,229,255,0.35)] md:text-7xl">

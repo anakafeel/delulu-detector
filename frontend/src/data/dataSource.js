@@ -46,15 +46,43 @@ function keepLiveCamera(prev, next) {
 
 // Poker Face name entry: POST /api/player. Resolves to the name as the Pi will log it
 // (trimmed, at most 16 characters); rejects if the Pi didn't take it.
-export async function submitPlayerName(name) {
+export async function submitPlayerName(name, photo = false) {
   if (previewEnabled()) return setPreviewPlayer(name)
   const r = await fetch(`${API_BASE}/api/player`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, photo: photo === true }),
   })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return (await r.json()).player
+}
+
+// Tiger Data calibration curve (GET /api/tiger/curve): round_number -> average gap across all of
+// the player's sessions, read from the continuous aggregate. Resolves to null when Tiger is off
+// or unreachable (503), so the chart falls back to this session's rounds from the local log.
+export async function fetchTigerCurve(player) {
+  if (previewEnabled() || !player) return null
+  try {
+    const r = await fetch(`${API_BASE}/api/tiger/curve?player=${encodeURIComponent(player)}`, { cache: 'no-store' })
+    if (!r.ok) return null
+    const body = await r.json()
+    return Array.isArray(body.curve) ? body.curve : null
+  } catch {
+    return null
+  }
+}
+
+// Tiger Data all-time leaderboard (lowest average gap first), or null when Tiger is off/unreachable.
+export async function fetchTigerLeaderboard() {
+  if (previewEnabled()) return null
+  try {
+    const r = await fetch(`${API_BASE}/api/tiger/leaderboard`, { cache: 'no-store' })
+    if (!r.ok) return null
+    const body = await r.json()
+    return Array.isArray(body.leaderboard) ? body.leaderboard : null
+  } catch {
+    return null
+  }
 }
 
 export function subscribe(callback) {

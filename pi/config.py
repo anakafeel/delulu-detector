@@ -153,7 +153,7 @@ STRAIGHT_QUESTION_GAP_S = 0.3 # pause between the rapid-fire question clips
 # Round types the Pi can score, and their display names (internal ids; the ids
 # are stored in the session log, so they never change).
 ROUND_NAMES = {1: "Reflex", 2: "Steady Hands", 5: "Poker Face", 6: "Straight Face"}
-# The Tell's game: these rounds, labelled 1 / 2 / 3 on screen and in the terminal.
+# Hill's Kitchen's game: these rounds, labelled 1 / 2 / 3 on screen and in the terminal.
 GAME_ROUNDS = (1, 5, 6)
 ROUND_LABELS = {1: 1, 5: 2, 6: 3}
 # Cut from the game in the pivot (they don't read the face). Still in the code and
@@ -209,6 +209,9 @@ PRESAGE_READY_TIMEOUT_S = _env_float("PRESAGE_READY_TIMEOUT_S", 20.0)
 # Paths / audio
 # --------------------------------------------------------------------------
 DB_PATH = Path(os.environ.get("DELULU_DB_PATH", REPO_ROOT / "data" / "sessions.db"))
+# Optional Tiger Data (Timescale) copy of every scored round: calibration curve + leaderboard from
+# a continuous aggregate (pi/tiger_store.py). Empty = off; SQLite above is always the game's log.
+TIGER_DATA_URL = os.environ.get("TIGER_DATA_URL", "").strip()
 ASSETS_DIR = REPO_ROOT / "assets"
 # Generic pre-recorded fallback. Optional per-tier files are also picked up if
 # present: assets/fallback_validated.mp3, fallback_mild.mp3, fallback_spicy.mp3,
@@ -245,6 +248,11 @@ UI_MOCK_DIAL_STEP_S = 0.15  # --mock --ui: simulated knob turn, seconds between 
 # rounds are logged under this name. Without --ui, --player is used as before.
 UI_DEFAULT_PLAYER = "Guest"
 UI_PLAYER_NAME_MAX = 16    # characters kept from a typed name (it has to fit the leaderboard)
+# Opt-in leaderboard photo (Poker Face with --ui): a player who presses Y after typing their name gets
+# one webcam frame from this far into the question, shown when their name is clicked. Memory only:
+# never written to disk, SQLite or Tiger Data, and gone when the game stops.
+PHOTO_AT_S = 3.0
+UI_PHOTO_MAX = 200         # photos kept (oldest dropped first)
 
 # Live camera in the browser for the face rounds (--ui with a real camera or --video):
 # GET /api/camera.mjpg. The stream reuses the frames the measurement already reads (the camera is

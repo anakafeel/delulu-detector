@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Tell - main loop on the Pi / laptop.
+"""Hill's Kitchen - main loop on the Pi / laptop.
 
 The game's three rounds (internal round ids in brackets; the ids are stored in
 the session log and never change):
@@ -46,6 +46,7 @@ import config
 import camera_feed
 import poker_round
 import straight_round
+import tiger_store
 import ui_server
 import vision
 from elevenlabs_client import deliver_verdict
@@ -53,6 +54,8 @@ from presage_client import PresageError
 from poker_round import parse_claim, window_line
 from scoring import (ROUND_POKER, ROUND_REFLEX, ROUND_STEADY, ROUND_STRAIGHT, RoundResult, clamp,
                      claim_to_seconds, score_reading, tremor_mg_to_performance)
+from datetime import datetime, timezone
+
 from session_log import SessionLog, new_session_id
 
 ROUND_INSTRUCTIONS = {
@@ -507,9 +510,13 @@ def describe_reality(result: RoundResult) -> str:
 
 def handle_reading(reading: dict, player: str, session_id: str, log: SessionLog,
                    play_audio: bool = True,
-                   ui: Optional[ui_server.GameState] = None) -> tuple[RoundResult, int]:
+                   ui: Optional[ui_server.GameState] = None,
+                   tiger: Optional[tiger_store.TigerWriter] = None) -> tuple[RoundResult, int]:
     result = score_reading(reading)
     round_number = log.log_round(session_id, player, result)
+    if tiger is not None:                                # background copy; never blocks or raises
+        tiger.submit(tiger_store.row_for(result, player, session_id, round_number,
+                                         datetime.now(timezone.utc)))
     if ui is not None:              # GameState methods never raise
         ui.round_result(result, player, session_id, round_number, log)
 
@@ -529,7 +536,8 @@ def handle_reading(reading: dict, player: str, session_id: str, log: SessionLog,
 
 
 def process_reading(reading: dict, player: str, session_id: str, log: SessionLog,
-                    play_audio: bool = True, ui: Optional[ui_server.GameState] = None) -> bool:
+                    play_audio: bool = True, ui: Optional[ui_server.GameState] = None,
+                    tiger: Optional[tiger_store.TigerWriter] = None) -> bool:
     """Score, log, narrate and show the leaderboard for one round.
 
     Any failure (SQLite, writing the mp3, audio playback, ...) is reported on
@@ -537,7 +545,7 @@ def process_reading(reading: dict, player: str, session_id: str, log: SessionLog
     Returns True if the round was handled cleanly.
     """
     try:
-        handle_reading(reading, player, session_id, log, play_audio=play_audio, ui=ui)
+        handle_reading(reading, player, session_id, log, play_audio=play_audio, ui=ui, tiger=tiger)
         print_leaderboard(log)
         return True
     except sqlite3.Error as exc:
@@ -678,7 +686,7 @@ run_poker_claim = run_face_claim          # the pre-Round-3 name
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="The Tell: game controller (Round 1 Reflex = --round 1, "
+    ap = argparse.ArgumentParser(description="Hill's Kitchen: game controller (Round 1 Reflex = --round 1, "
                                              "Round 2 Poker Face = --round 5, Round 3 Straight Face "
                                              "Under Pressure = --round 6)")
     ap.add_argument("--port", default=config.SERIAL_PORT, help=f"serial port (default {config.SERIAL_PORT})")
@@ -692,7 +700,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                          "6 = Straight Face Under Pressure (Round 3); 2 = Steady Hands needs "
                          "--legacy-rounds. With --calibrate: 5 (default), 6, or 2")
     ap.add_argument("--legacy-rounds", action="store_true",
-                    help="allow the rounds cut from The Tell (2 = Steady Hands)")
+                    help="allow the rounds cut from Hill's Kitchen (2 = Steady Hands)")
     ap.add_argument("--calibrate", action="store_true",
                     help="face rounds (--round 5 default, or 6) or legacy Round 2: print each window's "
                          "raw values; no scoring, logging or voice")
@@ -721,7 +729,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = ap.parse_args(argv)
 
     if args.round in config.LEGACY_ROUNDS and not args.legacy_rounds:
-        ap.error(f"Round {args.round} ({config.ROUND_NAMES[args.round]}) was cut from The Tell; "
+        ap.error(f"Round {args.round} ({config.ROUND_NAMES[args.round]}) was cut from Hill's Kitchen; "
                  "add --legacy-rounds to run it anyway")
     if args.calibrate:
         if args.round not in (None, ROUND_STEADY, ROUND_POKER, ROUND_STRAIGHT):
@@ -784,14 +792,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("   (--ui is not used with --calibrate; ignored)")
     if args.calibrate and poker is not None:
         if args.round == ROUND_STRAIGHT:
-            print(f"The Tell | CALIBRATION ({round_title(ROUND_STRAIGHT)}: raw seconds held and "
+            print(f"Hill's Kitchen | CALIBRATION ({round_title(ROUND_STRAIGHT)}: raw seconds held and "
                   f"difference scores, nothing scored or logged) | min diff {config.STRAIGHT_MIN_DIFF:g}, "
                   f"k {config.STRAIGHT_K:g}, hold {config.STRAIGHT_HOLD_FRAMES} frames | up to {poker.window_s:g} s")
         else:
             print("   --calibrate records the legacy OpenCV smile fraction only. "
                   "A live face round is scored by Presage. Center the face in the camera; "
                   "that position is the pre-demo check, not these smile numbers.")
-            print(f"The Tell | CALIBRATION ({round_title(ROUND_POKER)}: raw smile_frac, nothing scored or "
+            print(f"Hill's Kitchen | CALIBRATION ({round_title(ROUND_POKER)}: raw smile_frac, nothing scored or "
                   f"logged) | thresholds best {config.POKER_BEST_FRAC:g} / worst {config.POKER_WORST_FRAC:g} "
                   f"smile_frac | window {poker.window_s:g} s")
         _print_poker_setup(poker, args)
@@ -800,7 +808,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         finally:
             poker.close()
     if args.calibrate:
-        print(f"The Tell | CALIBRATION (legacy Round 2 raw mg, nothing scored or logged) | "
+        print(f"Hill's Kitchen | CALIBRATION (legacy Round 2 raw mg, nothing scored or logged) | "
               f"thresholds best {config.STEADY_BEST_MG:g} / worst {config.STEADY_WORST_MG:g} mg RMS")
         return _run_calibration(source, args.round)
 
@@ -811,11 +819,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     key_state = "set" if config.ELEVENLABS_API_KEY else "NOT set -> fallback verdicts"
     who = (f"players type their names on screen ({args.player} until someone does)"
            if args.name_entry else f"player {args.player}")
-    print(f"The Tell | session {session_id} | {who} | "
+    print(f"Hill's Kitchen | session {session_id} | {who} | "
           f"{round_title(args.round)} | db {args.db}")
     print(f"ElevenLabs key {key_state} | TTS timeout {config.ELEVENLABS_TIMEOUT_S}s")
     if poker is not None:
         _print_poker_setup(poker, args)
+    tiger = tiger_store.TigerWriter().start() if tiger_store.enabled() else None
+    print(f"Tiger Data: {'on (rounds are copied to round_events)' if tiger else 'off (set TIGER_DATA_URL to turn it on)'}")
     ui, ui_srv = start_ui(args, session_id, log)
     if ui is not None and poker is not None and (not args.mock or args.video):
         attach_camera_feed(ui, ui_srv, poker)
@@ -850,6 +860,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if measuring and args.name_entry:
                     player = ui.round_player()           # the name typed before this claim
                     print(f"   player: {player}")
+                if poker is not None and hasattr(poker, "want_photo"):
+                    poker.want_photo = bool(measuring and args.name_entry and ui.photo_ok())
                 if measuring:
                     ui.claim_locked(claim["round_id"], claim["claim"])
                 reading = run_face_claim(claim, poker, args.round)
@@ -871,13 +883,18 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if ui is not None:
                     ui.round_rejected(ui_sensor_error_message(reading))
                 continue
+            photo = getattr(poker, "photo", None) if claim is not None else None
+            if ui is not None and photo:
+                ui.store_photo(player, photo)           # opt-in, memory only
+                poker.photo = None
             if is_resting(reading):
                 report_resting(reading)
                 if ui is not None:
                     ui.round_rejected("Sensor was resting on the table, not held. Pick it up and "
                                       "hold it, then press the button again. Not scored.")
                 continue
-            process_reading(reading, player, session_id, log, play_audio=not args.no_audio, ui=ui)
+            process_reading(reading, player, session_id, log, play_audio=not args.no_audio, ui=ui,
+                            tiger=tiger)
             if ui is not None and args.mock:
                 time.sleep(config.UI_MOCK_PAUSE_S)      # let the reveal be seen between mock rounds
         if ui_srv is not None and args.mock:
@@ -887,6 +904,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     finally:
         if ui_srv is not None:
             ui_srv.stop()
+        if tiger is not None:
+            tiger.close()
         try:
             series = log.calibration_series(args.player, session_id)
             if series:
@@ -911,7 +930,8 @@ def start_ui(args, session_id: str, log: SessionLog):
     state.session_started(args.player, args.round, session_id, mock=args.mock,
                           name_entry=getattr(args, "name_entry", False))
     state.refresh_from_log(log)
-    srv = ui_server.UIServer(state, host=args.ui_host, port=args.ui_port)
+    reader = tiger_store.TigerReader() if tiger_store.enabled() else None
+    srv = ui_server.UIServer(state, host=args.ui_host, port=args.ui_port, tiger=reader)
     if not srv.start():
         return state, None
     if srv.serving_frontend:

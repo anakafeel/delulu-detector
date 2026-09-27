@@ -12,6 +12,14 @@ export default function NameEntry({ entry, variant, player, lead, onHelp }) {
   const refocus = () => requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
 
   const onKeyDown = (event) => {
+    if (entry.asking) {                          // the photo question: Y / N, Esc goes back
+      const k = event.key.toLowerCase()
+      event.preventDefault()
+      if (k === 'y') entry.answer(true)
+      else if (k === 'n' || k === 'enter') entry.answer(false)
+      else if (k === 'escape') entry.cancel()
+      return
+    }
     if (event.key === 'Enter') {
       event.preventDefault()
       entry.submit()
@@ -45,6 +53,7 @@ export default function NameEntry({ entry, variant, player, lead, onHelp }) {
   )
 
   const status = <Status entry={entry} />
+  const ask = entry.asking ? <PhotoAsk name={entry.asking} /> : null
 
   if (variant === 'compact') {
     return (
@@ -54,6 +63,7 @@ export default function NameEntry({ entry, variant, player, lead, onHelp }) {
         </span>
         {field}
         <kbd className="rounded border border-ink-faint px-2 py-0.5 text-ink">Enter</kbd>
+        {ask}
         {status}
       </div>
     )
@@ -63,10 +73,27 @@ export default function NameEntry({ entry, variant, player, lead, onHelp }) {
     <div className="pointer-events-auto flex w-[min(46rem,90%)] flex-col items-center gap-4 rounded-2xl border border-ink/40 bg-void/90 px-8 py-6 text-center shadow-[0_0_60px_-10px_var(--color-ink)]">
       <p className="font-display text-title text-ink">{lead}</p>
       {field}
-      <p className="font-game text-data text-ink-dim">
-        Type your name, press <kbd className="rounded border border-ink-faint px-2 text-ink">Enter</kbd>
-      </p>
+      {ask ?? (
+        <p className="font-game text-data text-ink-dim">
+          Type your name, press <kbd className="rounded border border-ink-faint px-2 text-ink">Enter</kbd>
+        </p>
+      )}
       {status}
+    </div>
+  )
+}
+
+// Opt-in: one photo from 3 s into the question, for the leaderboard. Memory only on this
+// laptop; gone when the game stops. Enter / N = no.
+function PhotoAsk({ name }) {
+  return (
+    <div className="flex flex-col items-center gap-1 rounded-lg border border-claim/60 bg-surface px-4 py-2 text-center">
+      <p className="font-game text-data text-ink">
+        {name}, snap a photo of your face mid-question for the leaderboard?{' '}
+        <kbd className="rounded border border-good px-2 font-bold text-good">Y</kbd>{' '}
+        <kbd className="rounded border border-ink-faint px-2 font-bold text-ink">N</kbd>
+      </p>
+      <p className="font-game text-meta text-ink-dim">Stays on this laptop only, deleted when the game stops.</p>
     </div>
   )
 }

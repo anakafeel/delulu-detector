@@ -27,7 +27,8 @@ export default function HowItWorks({ onClose }) {
           <dd>
             While the question plays, Presage software reads your face from the webcam, frame by frame, and rates
             how neutral your expression looks, 0 to 100. Your composure is the average over the window. Frames are
-            not saved.
+            not saved, except one photo if you said yes to it, kept in this laptop's memory for the
+            leaderboard and gone when the game stops.
           </dd>
 
           <dt className="font-bold text-ink">Gap</dt>

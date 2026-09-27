@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { fetchTigerCurve } from '../data/dataSource'
 import { currentOrLastPlayer, playerSeries } from '../data/deriveStats'
 import { severityFor, SEVERITY_LEVELS } from '../data/severity'
 import { useMeasuredWidth } from '../hooks/useMeasuredWidth'
@@ -20,7 +21,22 @@ function CalibrationCurve({ player: currentPlayer, history }) {
   const CHART_H = H - PAD.top - PAD.bottom
 
   const player = currentOrLastPlayer({ player: currentPlayer, history })
-  const series = useMemo(() => playerSeries(history, player), [history, player])
+  const local = useMemo(() => playerSeries(history, player), [history, player])
+  // Tiger Data when it answers (all sessions, by round number); else this log's rounds in order.
+  // Refetched when a new round lands (history length) or the player changes.
+  const [tiger, setTiger] = useState(null)
+  const rounds = history.length
+  useEffect(() => {
+    let live = true
+    fetchTigerCurve(player).then((curve) => {
+      if (live) setTiger(curve && curve.length ? { player, curve } : null)
+    })
+    return () => {
+      live = false
+    }
+  }, [player, rounds])
+  const fromTiger = tiger?.player === player
+  const series = fromTiger ? tiger.curve.map((c) => ({ gap: c.avg_gap })) : local
 
   const points = series.map((r, i) => ({
     x: PAD.left + (series.length === 1 ? CHART_W / 2 : (i / (series.length - 1)) * CHART_W),
@@ -52,7 +68,11 @@ function CalibrationCurve({ player: currentPlayer, history }) {
         <h3 className="font-display text-data uppercase tracking-[0.15em] text-ink">
           Calibration curve
         </h3>
-        {player && <span className="font-game text-meta text-ink-dim">{player} · gap per round</span>}
+        {player && (
+          <span className="font-game text-meta text-ink-dim">
+            {player} · {fromTiger ? 'avg gap by round, all sessions · Tiger Data' : 'gap per round'}
+          </span>
+        )}
       </div>
 
       <div ref={containerRef} className="w-full">

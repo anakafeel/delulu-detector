@@ -13,7 +13,7 @@ from assets/fallback_*.mp3.
 The interview questions the face rounds play (the stimulus, not verdicts) live in
 POKER_QUESTION_LINES / PRESSURE_QUESTION_LINES.
 
-The narrator's voice (The Tell): a skeptical interviewer who is also your
+The narrator's voice (Hill's Kitchen): a skeptical interviewer who is also your
 brutally honest friend. Dry, specific, unimpressed by claims, fair about evidence.
 """
 from __future__ import annotations
@@ -183,7 +183,7 @@ STEADY_TEMPLATES: dict[str, list[str]] = {
     ],
 }
 
-# Poker Face (The Tell's Round 2, id 5). Claim = how unreadable their face is;
+# Poker Face (Hill's Kitchen's Round 2, id 5). Claim = how unreadable their face is;
 # perf 100 = never cracked a smile, 0 = smiled through the whole question.
 # "over" = claimed a stone face and cracked, "under" = doubted themselves and
 # stayed stony. No false starts or timeouts in this round.
@@ -243,7 +243,7 @@ POKER_TEMPLATES: dict[str, list[str]] = {
     ],
 }
 
-# Straight Face Under Pressure (The Tell's Round 3, id 6). Claim = how long they
+# Straight Face Under Pressure (Hill's Kitchen's Round 3, id 6). Claim = how long they
 # can keep a neutral face under rapid-fire questions (dial 100 = STRAIGHT_MAX_S);
 # perf = seconds held on the same scale. "over" = cracked sooner than claimed.
 STRAIGHT_TEMPLATES: dict[str, list[str]] = {

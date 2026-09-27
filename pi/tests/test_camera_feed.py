@@ -607,3 +607,22 @@ def test_poker_live_state_counts_the_window_down():
     assert live["remainingS"] == 3.5 and live["windowS"] == 6.0
     feed.end("measuring")
     assert "remainingS" not in feed.live_state()
+
+
+def test_photo_is_taken_once_at_photo_at_s_only_when_wanted(monkeypatch):
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("cv2")
+    monkeypatch.setattr(config, "PHOTO_AT_S", 3.0)
+    game = poker_round.PokerRound(camera=None, detector=None, window_s=6.0)
+    frame = np.zeros((480, 1280, 3), np.uint8)
+    game._on_frame(frame, None, False, 3.5)
+    assert game.photo is None                              # nobody said yes
+    game.want_photo = True
+    game._on_frame(frame, None, False, 2.9)
+    assert game.photo is None                              # too early
+    game._on_frame(frame, None, False, 3.1)
+    first = game.photo
+    assert first and first[:2] == b"\xff\xd8"              # a JPEG
+    game._on_frame(np.full((480, 1280, 3), 255, np.uint8), None, False, 4.0)
+    assert game.photo is first                             # one per round
+    assert camera_feed.photo_jpeg("not a frame") is None

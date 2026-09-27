@@ -5,3 +5,5 @@ pytest>=8.0
 # Round 5 (Poker Face) only; imported lazily, Rounds 1-2 run without it.
 # Must stay below 5: opencv-python 5.x removed cv2.CascadeClassifier (the Haar cascades).
 opencv-python>=4.8,<5
+# Optional: Tiger Data (Timescale) copy of each round, when TIGER_DATA_URL is set (pi/tiger_store.py).
+psycopg[binary]>=3.1

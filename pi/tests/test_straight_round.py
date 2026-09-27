@@ -1,4 +1,4 @@
-"""Straight Face Under Pressure (The Tell's Round 3, internal id 6): scoring, the
+"""Straight Face Under Pressure (Hill's Kitchen's Round 3, internal id 6): scoring, the
 frame-difference tracker, the measurement loop, the round, the question barrage,
 main.py wiring (mock, calibrate, serial), the UI bits, and --video on a tiny
 generated clip. No webcam, no network."""
