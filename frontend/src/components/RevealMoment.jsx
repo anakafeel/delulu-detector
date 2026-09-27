@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import confetti from 'canvas-confetti'
 import { severityFor } from '../data/severity'
 import { useCountUp } from '../hooks/useCountUp'
 import { compareToTonight } from '../data/compare'
+import { reactionGifFor } from '../data/reactionGifs'
 
 const SHAKE_AMPLITUDE = { good: 0, warning: 4, serious: 9, critical: 16 }
 const CONFETTI_COUNT = { good: 90, warning: 70, serious: 110, critical: 160 }
@@ -34,6 +35,7 @@ export default function RevealMoment({ result, history = [] }) {
   const amplitude = SHAKE_AMPLITUDE[severity.key]
   const verdictText = visibleVerdict(result)
   const composure = result.actual_unit?.trim() === 'composure'
+  const gif = reactionGifFor(result)
 
   return (
     <div className="relative flex h-full flex-col items-center justify-center gap-5 overflow-hidden px-6 text-center">
@@ -58,6 +60,7 @@ export default function RevealMoment({ result, history = [] }) {
             color="var(--color-reality)"
             sub={composure ? null : `${result.actual_raw}${result.actual_unit}`}
           />
+          {gif && <ReactionGif key={gif.url} src={gif.url} />}
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-4">
@@ -154,6 +157,22 @@ function HowYouCompare({ result, history }) {
         {c.small ? ', a small sample that grows as people play' : ''}.
       </p>
     </div>
+  )
+}
+
+// Shown at once with the numbers (never delays them); a broken file just disappears.
+function ReactionGif({ src }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return null
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden="true"
+      onError={() => setFailed(true)}
+      className="anim-fade-in h-40 max-w-[18rem] rounded-xl border border-ink-faint/40 object-contain"
+      draggable={false}
+    />
   )
 }
 
