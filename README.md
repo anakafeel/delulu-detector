@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/b812ca0b-6a33-4a9b-a953-094520389041
 
 That is the latest brag cut, 22 seconds: the new logo, a name, the dial, one question, then 72 against 36. The same file is in the repo at [`brag-output/brag.mp4`](brag-output/brag.mp4).
 
-The product thinking, including the pitch line, the rounds, and what is still spec, is in [`What the Hill — PRD.md`](<What the Hill — PRD.md>). The GitHub repo is [anakafeel/what-the-hill](https://github.com/anakafeel/what-the-hill). The project domain is [https://whatthehill.wiki](https://whatthehill.wiki). It is intended to forward to this README at the repo home, [https://github.com/anakafeel/what-the-hill](https://github.com/anakafeel/what-the-hill); that forward is not live yet.
+The product thinking, including the pitch line, the rounds, and what is still spec, is in [`What the Hill — PRD.md`](<What the Hill — PRD.md>). The GitHub repo is [anakafeel/what-the-hill](https://github.com/anakafeel/what-the-hill). The project domain is [whatthehill.wiki](http://whatthehill.wiki). It forwards to this README at the repo home, [https://github.com/anakafeel/what-the-hill](https://github.com/anakafeel/what-the-hill).
 
 Everything in a live round is computed in the moment: the dial, the Presage reading, the gap, the score, and the spoken verdict. If Presage returns no reading, the round is not scored. If ElevenLabs fails, the screen says so. Nothing is substituted.
 
