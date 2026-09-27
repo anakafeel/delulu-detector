@@ -1,6 +1,7 @@
 import { motion } from 'motion/react'
 import { GAME_ROUNDS } from '../data/roundDefs'
 import NameEntry from './NameEntry'
+import logo from '../assets/logo.png'
 
 const MARQUEE_TEXT = GAME_ROUNDS.map((r) => `ROUND ${r.label}: ${r.round_name.toUpperCase()}`).join('   ///   ')
 
@@ -11,8 +12,14 @@ export default function IdleScreen({ names, onHelp }) {
       <Glow className="left-[8%] top-[15%] bg-claim" delay={0} />
       <Glow className="right-[10%] top-[55%] bg-reality" delay={2.4} />
 
+      <img
+        src={logo}
+        alt="Hill's Kitchen logo: a fork and chef's knife crossed under a flame, on a mountain"
+        className="anim-fade-scale-in mb-4 h-40 w-40 rounded-2xl shadow-[0_0_60px_-10px_rgba(255,60,30,0.55)]"
+        draggable={false}
+      />
       <p className="anim-fade-in-up font-game text-data uppercase tracking-[0.5em] text-ink-dim">
-        The Tell
+        Hill's Kitchen
       </p>
 
       <h1 className="anim-fade-scale-in mt-4 text-center font-display text-6xl leading-tight text-ink [text-shadow:0_0_24px_var(--color-claim),0_0_60px_rgba(34,229,255,0.35)] md:text-7xl">

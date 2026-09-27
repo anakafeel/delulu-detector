@@ -9,7 +9,7 @@ import config
 ROUND_REFLEX = 1
 ROUND_STEADY = 2
 ROUND_POKER = 5
-ROUND_STRAIGHT = 6     # The Tell's Round 3: Straight Face Under Pressure
+ROUND_STRAIGHT = 6     # Hill's Kitchen's Round 3: Straight Face Under Pressure
 
 # Unit string each round's "actual" value is reported in (matches the Arduino's "unit" field;
 # Rounds 5 and 6 are measured on the Pi: smile_frac as a percent / seconds held).

@@ -1,4 +1,4 @@
-// Static metadata for each round, matched to The Tell's PRD round table.
+// Static metadata for each round, matched to Hill's Kitchen's PRD round table.
 // `number` is the internal round type id the Pi uses (pi/main.py --round N, the
 // Arduino's "round_id"; stored in the session log, so it never changes);
 // `label` is the round number shown on screen (Round 1 / 2 / 3, PRD order);
@@ -9,7 +9,7 @@
 //   Reflex         reaction time in ms (150 ms or faster = 100, 600 ms or slower = 0)
 //   Poker Face     Presage composure, 0-100, over a 6 s webcam window
 //   Straight Face  the same Presage composure, 0-100, while questions play
-// Legacy rounds (cut from The Tell, `legacy: true`) stay here only so old session
+// Legacy rounds (cut from Hill's Kitchen, `legacy: true`) stay here only so old session
 // rows still render; they're left out of GAME_ROUNDS (idle marquee).
 export const ROUND_DEFS = [
   {
@@ -53,7 +53,7 @@ export const ROUND_DEFS = [
   },
 ]
 
-// The Tell's game, in play order.
+// Hill's Kitchen's game, in play order.
 export const GAME_ROUNDS = ROUND_DEFS.filter((r) => !r.legacy)
 
 export function roundById(id) {

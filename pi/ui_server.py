@@ -48,12 +48,12 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, Optional
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import config
 
 # Python round type -> the frontend's string round id (frontend/src/data/roundDefs.js).
-# The Tell plays 1 / 5 / 6 (labelled Round 1 / 2 / 3: config.ROUND_LABELS); 2 and 3 are
+# Hill's Kitchen plays 1 / 5 / 6 (labelled Round 1 / 2 / 3: config.ROUND_LABELS); 2 and 3 are
 # the cut Steady Hands / Retreat, kept so old session rows still render.
 ROUND_KEYS = {1: "reflex", 2: "steady_hands", 3: "retreat", 5: "poker_face", 6: "straight_face"}
 ROUND_DISPLAY_NAMES = {1: "Reflex", 2: "Steady Hands", 3: "Retreat", 5: "Poker Face",
@@ -236,6 +236,8 @@ class GameState:
         self.player: Optional[str] = None      # the fallback name (--player, or "Guest")
         self.name_entry = False        # Poker Face --ui: players type their name before dialing
         self.named_player: Optional[str] = None
+        self.photo_consent = False     # the named player pressed Y to a leaderboard photo
+        self._photos: dict = {}        # player -> JPEG bytes, memory only (opt-in; gone at exit)
         self._activity_at = clock()    # last name / dial / claim / result: the name expires with idle
         self.session_id: Optional[str] = None
         self.selected_round: Optional[int] = None
@@ -434,13 +436,15 @@ class GameState:
             self._changed()
 
     @_crash_safe
-    def set_player(self, raw) -> Optional[str]:
-        """The booth screen's name entry. Returns the name as it will be logged, or None."""
+    def set_player(self, raw, photo: bool = False) -> Optional[str]:
+        """The booth screen's name entry (and the Y/N to a leaderboard photo). Returns the name
+        as it will be logged, or None."""
         name = clean_player_name(raw)
         if name is None:
             return None
         with self._cond:
             self.named_player = name
+            self.photo_consent = photo is True
             self._activity_at = self._clock()
             # Typed on the attract screen: someone is here, go to the dial (like turning the knob).
             if self.armed and self._effective_screen() == "idle":
@@ -449,6 +453,25 @@ class GameState:
                 self._set_phase("predicting")
             self._changed()
         return name
+
+    def photo_ok(self) -> bool:
+        """The current named player said yes to a photo (and the name hasn't expired)."""
+        with self._cond:
+            return self.photo_consent and bool(self.named_player) and not self._name_expired_locked()
+
+    @_crash_safe
+    def store_photo(self, player: str, jpeg: bytes) -> None:
+        """Keep one opt-in photo per player (their latest round), in memory only."""
+        with self._cond:
+            self._photos.pop(player, None)
+            self._photos[player] = bytes(jpeg)
+            while len(self._photos) > config.UI_PHOTO_MAX:
+                self._photos.pop(next(iter(self._photos)))
+            self._changed()
+
+    def photo(self, player: str) -> Optional[bytes]:
+        with self._cond:
+            return self._photos.get(player)
 
     def player_named(self) -> bool:
         """A name was typed for this player (and hasn't expired with the idle timeout)."""
@@ -617,6 +640,7 @@ class GameState:
             "screen": screen,
             "player": self._current_player_locked(),
             "nameEntry": self.name_entry,
+            "photos": list(self._photos),
             "playerNamed": bool(self.named_player) and not self._name_expired_locked(),
             "activeRound": active_round(self.active_round_id) if show_round else None,
             "liveClaim": self._live_claim_for(screen),
@@ -678,9 +702,9 @@ class GameState:
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
-_NO_DIST_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>The Tell</title></head>
+_NO_DIST_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Hill's Kitchen</title></head>
 <body style="font-family:sans-serif;background:#111;color:#eee;padding:2em">
-<h1>The Tell UI server is running</h1>
+<h1>Hill's Kitchen UI server is running</h1>
 <p>No built frontend found at <code>frontend/dist</code>. Build it once with
 <code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code>, or run the dev server
 (<code>npm run dev</code>) and open the URL it prints.</p>
@@ -749,7 +773,8 @@ class _Handler(BaseHTTPRequestHandler):
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
             except (UnicodeDecodeError, ValueError):
                 body = None
-            name = self.state.set_player(body.get("name")) if isinstance(body, dict) else None
+            name = (self.state.set_player(body.get("name"), photo=body.get("photo") is True)
+                    if isinstance(body, dict) else None)
             if name is None:
                 self._send(400, b'{"error": "empty or invalid name"}', "application/json")
                 return
@@ -771,6 +796,15 @@ class _Handler(BaseHTTPRequestHandler):
                     self._events()
             elif path == "/api/camera.mjpg":
                 self._camera(head_only)
+            elif path == "/api/photo":
+                player = (parse_qs(urlsplit(self.path).query).get("player") or [""])[0]
+                jpeg = self.state.photo(player)
+                if jpeg is None:
+                    self._send(404, b'{"error": "no photo"}', "application/json", head_only)
+                else:
+                    self._send(200, jpeg, "image/jpeg", head_only)
+            elif path in ("/api/tiger/curve", "/api/tiger/leaderboard"):
+                self._tiger(path, urlsplit(self.path).query, head_only)
             elif path.startswith("/api/"):
                 self._send(404, b'{"error": "not found"}', "application/json", head_only)
             else:
@@ -861,6 +895,28 @@ class _Handler(BaseHTTPRequestHandler):
         finally:
             feed.remove_viewer()
 
+    def _tiger(self, path: str, query: str, head_only: bool) -> None:
+        """Tiger Data reads: 503 when it's off or unreachable (the UI falls back to SQLite)."""
+        reader = getattr(self.server, "tiger", None)
+        if reader is None:
+            self._send(503, b'{"error": "Tiger Data is off (TIGER_DATA_URL not set)"}', "application/json",
+                       head_only)
+            return
+        try:
+            if path == "/api/tiger/curve":
+                player = (parse_qs(query).get("player") or [""])[0].strip()
+                if not player:
+                    self._send(400, b'{"error": "?player= is required"}', "application/json", head_only)
+                    return
+                body = {"player": player, "curve": reader.curve(player), "source": "tiger"}
+            else:
+                body = {"leaderboard": reader.leaderboard(), "source": "tiger"}
+        except Exception as exc:  # noqa: BLE001 - TigerError and anything else: the game carries on
+            self.state._report_error("Tiger Data read", exc)
+            self._send(503, json.dumps({"error": str(exc)}).encode(), "application/json", head_only)
+            return
+        self._send(200, json.dumps(body).encode(), "application/json", head_only)
+
     def _client_gone(self) -> bool:
         """True once the browser closed the connection (EOF), so a viewer isn't counted for long."""
         try:
@@ -898,8 +954,9 @@ class UIServer:
     """Runs the HTTP server in a daemon thread. start() never raises."""
 
     def __init__(self, state: GameState, host: Optional[str] = None, port: Optional[int] = None,
-                 static_dir: Optional[Path] = None):
+                 static_dir: Optional[Path] = None, tiger=None):
         self.state = state
+        self.tiger = tiger                               # tiger_store.TigerReader, or None
         self.host = config.UI_HOST if host is None else host
         self.port = config.UI_PORT if port is None else port
         self.static_dir = Path(config.UI_STATIC_DIR if static_dir is None else static_dir)
@@ -922,6 +979,7 @@ class UIServer:
         httpd.game_state = self.state                  # type: ignore[attr-defined]
         httpd.static_dir = self.static_dir.resolve()   # type: ignore[attr-defined]
         httpd.stopping = threading.Event()             # type: ignore[attr-defined]
+        httpd.tiger = self.tiger                       # type: ignore[attr-defined]
         self.httpd = httpd
         self.port = httpd.server_address[1]
         self.thread = threading.Thread(target=httpd.serve_forever, name="delulu-ui", daemon=True)

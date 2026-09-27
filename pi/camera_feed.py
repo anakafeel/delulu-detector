@@ -352,3 +352,23 @@ class CameraFeed:
             cv2.putText(img, text, ((320 - tw) // 2, y), font, fs, (200, 200, 200), 1, cv2.LINE_AA)
         ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         return buf.tobytes() if ok else None
+
+
+def photo_jpeg(frame) -> Optional[bytes]:
+    """The opt-in leaderboard photo (poker_round.PokerRound.want_photo): the raw frame, mirrored
+    like the live view, at most 640 px wide, as JPEG bytes. Kept in memory by the UI only (never
+    written anywhere). None if it can't be made; never raises."""
+    try:
+        if getattr(frame, "ndim", 0) != 3:
+            return None
+        import vision  # noqa: PLC0415 - OpenCV stays lazy
+        cv2 = vision.import_cv2()
+        img = cv2.flip(frame, 1)
+        h, w = img.shape[:2]
+        if w > 640:
+            img = cv2.resize(img, (640, int(h * 640 / w)))
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return buf.tobytes() if ok else None
+    except Exception as exc:  # noqa: BLE001 - a photo must never cost the round
+        print(f"   [warn] leaderboard photo not taken ({type(exc).__name__}: {exc})", file=sys.stderr)
+        return None

@@ -675,3 +675,36 @@ def test_cue_length_ack_at_boot_is_not_a_round(clock):
     s.on_status(status("mode", round_id=5))
     s.on_status(status("window", window_ms=6000))        # reply to W6000, sent right after the ack
     assert s.snapshot()["screen"] == "predicting"         # the dial, not the camera
+
+
+# ------------------------------------------------------------- opt-in leaderboard photo
+def test_photo_needs_a_yes_and_lives_in_memory_per_player(clock, tmp_path):
+    s = GameState(clock=clock, reveal_hold_s=10, idle_after_s=60)
+    s.session_started("Guest", 5, "sess", name_entry=True)
+    s.set_player("Ada")                                  # no photo answer = no
+    assert s.photo_ok() is False
+    s.set_player("Ada", photo=True)
+    assert s.photo_ok() is True
+    s.store_photo("Ada", b"\xff\xd8one")
+    s.store_photo("Ada", b"\xff\xd8two")                 # latest round wins
+    assert s.photo("Ada") == b"\xff\xd8two" and s.snapshot()["photos"] == ["Ada"]
+    s.set_player("Bo", photo=False)
+    assert s.photo_ok() is False and s.photo("Bo") is None
+    srv = UIServer(s, host="127.0.0.1", port=0, static_dir=tmp_path)
+    assert srv.start()
+    try:
+        resp, body = get(srv, "/api/photo?player=Ada")
+        assert resp.status == 200 and resp.getheader("Content-Type") == "image/jpeg" and body == b"\xff\xd8two"
+        assert get(srv, "/api/photo?player=Bo")[0].status == 404
+        r, _ = post_json(srv, "/api/player", {"name": "Cy", "photo": True})
+        assert r.status == 200 and s.photo_ok() is True
+    finally:
+        srv.stop()
+
+
+def test_photo_cap_drops_the_oldest(clock, monkeypatch):
+    monkeypatch.setattr(config, "UI_PHOTO_MAX", 2)
+    s = GameState(clock=clock)
+    for name in ("a", "b", "c"):
+        s.store_photo(name, b"x")
+    assert s.snapshot()["photos"] == ["b", "c"]

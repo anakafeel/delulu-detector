@@ -44,3 +44,10 @@ def _isolated_clip_folders(monkeypatch, tmp_path):
     """Question / joke clips never come from (or go to) the real assets/ during tests."""
     monkeypatch.setattr(config, "QUESTIONS_DIR", tmp_path / "questions")
     monkeypatch.setattr(config, "JOKES_DIR", tmp_path / "jokes")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_tiger_data(monkeypatch):
+    # .env may hold the booth's real TIGER_DATA_URL: tests must never write mock rounds to it.
+    # (The live test in test_tiger_store.py uses TIGER_TEST_URL explicitly.)
+    monkeypatch.setattr(config, "TIGER_DATA_URL", "")

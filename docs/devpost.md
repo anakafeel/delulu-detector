@@ -1,10 +1,10 @@
-# The Tell
+# Hill's Kitchen
 
 Hack the Hill III. Paste the sections below into the Devpost text fields.
 
 ## What it is
 
-The Tell demonstrates that your face gives off signals you do not control and cannot accurately predict, and it does that live.
+Hill's Kitchen demonstrates that your face gives off signals you do not control and cannot accurately predict, and it does that live.
 
 One person sets a rotary dial from 0 to 100 for how composed they expect to look, then presses a button to lock the claim. They do one webcam round: Poker Face or Straight Face. Presage SmartSpectra, an on-device vitals and expression SDK, is the reality check. The API key only authorizes the session. Frames are not uploaded for scoring. OpenCV only draws the face box. The locked claim and the Presage reading are compared as a gap, the absolute difference between claim and performance. The score is 100 minus that gap. ElevenLabs speaks the verdict only after both measurements return.
 
@@ -20,7 +20,7 @@ This is not interview training. It is not a clinical stress test, and it is not 
 
 A smile-percentage heuristic counts frames where a detector thinks it sees a smile, or it scores raw change between frames. That number moves with lighting, distance, and pixel noise. It is not the measurement used here.
 
-Presage SmartSpectra runs on the computer as an on-device vitals and expression SDK. The API key only authorizes the session. Frames are not uploaded for scoring. OpenCV’s only job on screen is to draw the face box so the person can see they are in frame.
+Presage SmartSpectra runs on the computer as an on-device vitals and expression SDK. The API key only authorizes the session. Frames are not uploaded for scoring. A player can opt in (press Y after typing their name) to one leaderboard photo from mid-question; it stays in memory on the booth laptop and is gone when the game stops. OpenCV’s only job on screen is to draw the face box so the person can see they are in frame.
 
 ## Why ElevenLabs is only the verdict
 
@@ -38,4 +38,4 @@ A rotary dial and a button are on an Arduino. A USB webcam is on the computer ru
 
 The repository is public under the MIT license: https://github.com/anakafeel/delulu-detector
 
-The project is The Tell. The repository name is unchanged.
+The project is Hill's Kitchen. The repository name is unchanged.

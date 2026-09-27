@@ -1,4 +1,4 @@
-"""Straight Face Under Pressure (The Tell's Round 3, internal id 6) on the Pi.
+"""Straight Face Under Pressure (Hill's Kitchen's Round 3, internal id 6) on the Pi.
 
 The Arduino only locks the claim (0-100 on the dial = 0-STRAIGHT_MAX_S seconds)
 and prints
@@ -78,7 +78,7 @@ class QuestionBarrage:
 
     def start(self) -> "QuestionBarrage":
         if self.files and self._thread is None:
-            self._thread = threading.Thread(target=self._run, name="tell-questions", daemon=True)
+            self._thread = threading.Thread(target=self._run, name="hk-questions", daemon=True)
             self._thread.start()
         return self
 

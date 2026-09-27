@@ -1,4 +1,4 @@
-"""Poker Face (The Tell's Round 2, internal id 5) on the Pi: claim line in, reading out.
+"""Poker Face (Hill's Kitchen's Round 2, internal id 5) on the Pi: claim line in, reading out.
 
 Also home of FaceRound, the camera plumbing shared with Straight Face
 (straight_round.py): camera lock, browser feed, claim-setting preview, clips.
@@ -39,6 +39,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+import camera_feed
 import config
 import elevenlabs_client as ec
 import vision
@@ -178,7 +179,7 @@ class LivePrompt:
 
     def start(self) -> "LivePrompt":
         if self.lines and self._thread is None:
-            self._thread = threading.Thread(target=self._run, name="tell-live-question", daemon=True)
+            self._thread = threading.Thread(target=self._run, name="hk-live-question", daemon=True)
             self._thread.start()
         return self
 
@@ -419,6 +420,8 @@ class PokerRound(FaceRound):
         self.play_jokes = play_jokes          # (the prompts are interview questions now; old name kept)
         self.jokes_dir = jokes_dir
         self.last_joke: Optional[Path] = None
+        self.want_photo = False               # set per round by main.py: the player pressed Y
+        self.photo: Optional[bytes] = None    # that round's JPEG (memory only), taken at PHOTO_AT_S
 
     def _pick_joke(self) -> Optional[Path]:
         files = joke_files(self.jokes_dir)
@@ -432,7 +435,9 @@ class PokerRound(FaceRound):
         joke_proc = None
         self.last_live = None
         wants_preview = self.preview is not None and self.preview.enabled
-        on_frame = self._on_frame if (wants_preview or self.feed is not None or self.presage is not None) else None
+        self.photo = None
+        on_frame = self._on_frame if (wants_preview or self.feed is not None or self.presage is not None
+                                      or self.want_photo) else None
         if self.feed is not None:
             self.feed.begin("measuring", self.window_s)     # never raises
         try:
@@ -473,6 +478,8 @@ class PokerRound(FaceRound):
                 self.feed.offer(frame, obs, smiling, elapsed_s)                 # never raises
             else:
                 self.feed.offer(frame, obs, smiling, elapsed_s, extra=extra)
+        if self.want_photo and self.photo is None and elapsed_s >= config.PHOTO_AT_S:
+            self.photo = camera_feed.photo_jpeg(frame)    # encoding lives in camera_feed (memory only)
 
     def run(self, claim_msg: dict) -> dict:
         try:

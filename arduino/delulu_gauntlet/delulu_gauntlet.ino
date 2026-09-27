@@ -2,7 +2,7 @@
 #include <rgb_lcd.h>
 
 /*
- * The Tell - Round 1 (Reflex) + Poker Face (id 5) + Straight Face Under Pressure (id 6)
+ * Hill's Kitchen - Round 1 (Reflex) + Poker Face (id 5) + Straight Face Under Pressure (id 6)
  * (+ the cut Steady Hands, id 2, still selectable with R2). The face rounds only lock the claim here.
  * Arduino UNO R4 WiFi (also builds for a classic Uno) sketch. Reads sensors and prints ONE JSON object per line over
  * serial. No scoring or game logic lives here; the Raspberry Pi does all of it.

@@ -1,6 +1,6 @@
-# The Tell
+# Hill's Kitchen
 
-**Your face gives you away.** The Tell is a live composure check built for Hack the Hill III. You set a 0-100 confidence claim on a rotary dial ("I can stay completely composed through this"), then do a short mock version of a high-stakes moment, a tough interview question or a barrage of rapid-fire ones, while a webcam reads your face. On a real Poker Face or Straight Face round, Presage SmartSpectra scores neutral-expression confidence (0-100); OpenCV still draws the face box. An ElevenLabs-voiced narrator, a skeptical interviewer who is also your brutally honest friend, calls out the gap when speech works: "validated" if you knew yourself, escalating roasts if you didn't (in either direction). If ElevenLabs fails, the browser UI shows "verdict unavailable". There are no pre-recorded verdict mp3s.
+**Your face gives you away.** Hill's Kitchen is a live composure check built for Hack the Hill III. You set a 0-100 confidence claim on a rotary dial ("I can stay completely composed through this"), then do a short mock version of a high-stakes moment, a tough interview question or a barrage of rapid-fire ones, while a webcam reads your face. On a real Poker Face or Straight Face round, Presage SmartSpectra scores neutral-expression confidence (0-100); OpenCV still draws the face box. An ElevenLabs-voiced narrator, a skeptical interviewer who is also your brutally honest friend, calls out the gap when speech works: "validated" if you knew yourself, escalating roasts if you didn't (in either direction). If ElevenLabs fails, the browser UI shows "verdict unavailable". There are no pre-recorded verdict mp3s.
 
 ### What this is, honestly
 - **What it doesn't do:** it does not measure real interview or pitch performance, it does not diagnose anxiety or anything clinical, and it won't help anyone land the job. One play doesn't improve anyone's real-world composure. Presage's neutral-expression confidence is not a validated psychological instrument, and neither is the Haar cascade or the frame-difference heuristic used by `--mock` and `--calibrate`.
@@ -77,7 +77,7 @@ If one round fails on the Pi (for example the SQLite write fails, the mp3 can't 
 
 ## Legacy round: Steady Hands
 
-**Cut from The Tell** (it measures hand tremor, not the face). The code, tests and sketch mode stay so nothing is lost, but it is hidden from the game: `main.py` refuses `--round 2` unless you add `--legacy-rounds`, and the UI leaves it out of the rotation. Everything below still works that way, e.g. `python pi/main.py --legacy-rounds --round 2 --port /dev/ttyACM0`.
+**Cut from Hill's Kitchen** (it measures hand tremor, not the face). The code, tests and sketch mode stay so nothing is lost, but it is hidden from the game: `main.py` refuses `--round 2` unless you add `--legacy-rounds`, and the UI leaves it out of the rotation. Everything below still works that way, e.g. `python pi/main.py --legacy-rounds --round 2 --port /dev/ttyACM0`.
 
 The player claims how steady they are (0 = shaky, 100 = rock still), then holds the accelerometer still for 5 s. The Arduino measures the real tremor.
 
@@ -217,7 +217,7 @@ With the browser UI on (`python pi/main.py --port /dev/ttyACM0 --round 5 --camer
 The face rounds' stimulus is interview questions. The lines are in `pi/elevenlabs_client.py`: `POKER_QUESTION_LINES` and `PRESSURE_QUESTION_LINES`. Spoken clips under `assets/questions/` are optional. Poker Face plays one `poker_XX.mp3` per window (never the same file twice in a row). Straight Face plays `pressure_XX.mp3`, shuffled, back to back until the face changes. If those files are missing, the prompt is silent and the round still runs. `--no-audio` skips them too. If there is no `poker_XX.mp3`, an older machine's `assets/jokes/` mp3s are still used for Poker Face.
 
 ### Privacy
-Frames are processed **in memory only**, one at a time, and are **not saved to disk**. The OpenCV vision path has no image-writing or network calls of its own, and a test checks for that. On a live face round the same frames are piped to `pi/presage/bridge.mjs`, which does not open a camera; the SmartSpectra key only authorizes the on-device SDK. Only numbers are logged (for a live round, composure; the OpenCV readings can still be in `extra`: smile_frac, face_frac, frame count, fps, first_smile_ms, and for Straight Face the seconds held, the trigger and the difference scores). Straight Face keeps its neutral-face reference as a 48 x 48 grey crop in memory for one window and drops it afterwards. `--preview` only draws on the local screen. With `--ui`, the newest frame is also held in memory (one at a time, dropped when the window ends) to stream to the browser on this machine (`/api/camera.mjpg`, served on `--ui-host`, which is localhost by default). It is never saved.
+Frames are processed **in memory only**, one at a time, and are **not saved to disk**. The OpenCV vision path has no image-writing or network calls of its own, and a test checks for that. On a live face round the same frames are piped to `pi/presage/bridge.mjs`, which does not open a camera; the SmartSpectra key only authorizes the on-device SDK. Only numbers are logged (for a live round, composure; the OpenCV readings can still be in `extra`: smile_frac, face_frac, frame count, fps, first_smile_ms, and for Straight Face the seconds held, the trigger and the difference scores). Straight Face keeps its neutral-face reference as a 48 x 48 grey crop in memory for one window and drops it afterwards. `--preview` only draws on the local screen. With `--ui`, the newest frame is also held in memory (one at a time, dropped when the window ends) to stream to the browser on this machine (`/api/camera.mjpg`, served on `--ui-host`, which is localhost by default). It is never saved. The one exception is opt-in: after typing their name a player can press Y to keep one webcam photo from 3 s into the question for the leaderboard (click their name to see it). It stays in the game's memory on this laptop, is never written to disk, SQLite or Tiger Data, and is gone when the game stops.
 
 ## Round 3: Straight Face Under Pressure
 
@@ -273,7 +273,7 @@ A clip runs on its **own clock** (frames / fps), so a 6 s window always covers 6
 | Cue | onboard | `CUE_LED_PIN` | The onboard `L` LED (`LED_BUILTIN`), plus the full 12x8 LED matrix on the UNO R4 WiFi. Nothing to wire |
 | Buzzer / piezo | D6 | `BUZZER_PIN` | Optional. Grove buzzer or a passive piezo. Set `USE_BUZZER 0` if you have none (leaving it at 1 is harmless) |
 | (nothing) | A1 | `RANDOM_SEED_PIN` | Leave unconnected. Floating noise seeds the random delay |
-| Accelerometer (legacy Steady Hands, optional) | I2C (SDA/SCL = A4/A5) | `ACCEL_WIRE` | Grove 3-Axis Digital Accelerometer (LIS3DHTR) in any Grove **I2C** port. Not needed for The Tell. See [Legacy round: Steady Hands](#legacy-round-steady-hands) |
+| Accelerometer (legacy Steady Hands, optional) | I2C (SDA/SCL = A4/A5) | `ACCEL_WIRE` | Grove 3-Axis Digital Accelerometer (LIS3DHTR) in any Grove **I2C** port. Not needed for Hill's Kitchen. See [Legacy round: Steady Hands](#legacy-round-steady-hands) |
 | Webcam (Rounds 2 and 3) | none: USB on the **Pi** | | Not on the Arduino. See [Round 2: Poker Face](#round-2-poker-face) and [Round 3](#round-3-straight-face-under-pressure) |
 | USB | USB-C (UNO R4 WiFi) or USB-B (classic Uno) | | To the Pi. This carries both power and serial |
 
@@ -381,7 +381,7 @@ CI (`.github/workflows/ci.yml`) runs these tests, compiles the sketch for both `
 
 ## Repo layout
 ```
-delulu-detector/                    # the repo keeps its name; the game is The Tell
+delulu-detector/                    # the repo keeps its name; the game is Hill's Kitchen
 ├── README.md
 ├── .github/workflows/ci.yml        # tests, sketch compile for both boards, frontend build + lint
 ├── LICENSE                         # MIT

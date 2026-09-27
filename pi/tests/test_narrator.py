@@ -65,7 +65,7 @@ def test_every_key_has_at_least_4_distinct_lines(round_id):
 
 def test_no_round_id_3_content():
     # Internal round id 3 (the parked Retreat idea) has no templates or name.
-    # The Tell's "Round 3" is Straight Face, internal id 6.
+    # Hill's Kitchen's "Round 3" is Straight Face, internal id 6.
     assert set(ec.ROUND_TEMPLATES) == {1, 2, 5, 6}
     assert 3 not in config.ROUND_NAMES
 

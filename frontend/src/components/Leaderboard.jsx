@@ -1,11 +1,35 @@
-import { memo, useMemo } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { leaderboardRows } from '../data/deriveStats'
+import { API_BASE, fetchTigerLeaderboard } from '../data/dataSource'
 
 // memo: the live dial updates the app state up to 10 times a second; history
 // keeps the same reference then (dataSource.js), so the leaderboard is skipped.
-function Leaderboard({ history }) {
-  const rows = useMemo(() => leaderboardRows(history), [history])
-  const totalRounds = history.length
+// photos: players with an opt-in photo from tonight (state.photos); their names are clickable.
+function Leaderboard({ history, photos = [] }) {
+  const [open, setOpen] = useState(null)
+  const local = useMemo(() => leaderboardRows(history), [history])
+  // All-time from Tiger Data (every logged session, ranked by average gap) when it answers;
+  // otherwise this machine's log. Refetched whenever a new round lands.
+  const [tiger, setTiger] = useState(null)
+  const rounds = history.length
+  useEffect(() => {
+    let live = true
+    fetchTigerLeaderboard().then((board) => {
+      if (live) setTiger(board && board.length ? board : null)
+    })
+    return () => {
+      live = false
+    }
+  }, [rounds])
+  const rows = tiger
+    ? tiger.map((r) => ({
+        player: r.player,
+        bestGap: Math.round(r.best_gap),
+        worstGap: Math.round(r.worst_gap),
+        rounds: r.rounds,
+      }))
+    : local
+  const totalRounds = tiger ? tiger.reduce((n, r) => n + r.rounds, 0) : rounds
 
   return (
     <div className="flex flex-col gap-3">
@@ -13,7 +37,9 @@ function Leaderboard({ history }) {
         <h3 className="font-display text-data uppercase tracking-[0.15em] text-ink">
           Leaderboard
         </h3>
-        <span className="font-game text-meta text-ink-dim">{totalRounds} rounds played</span>
+        <span className="font-game text-meta text-ink-dim">
+          {totalRounds} rounds played{tiger ? ' · all-time, by avg gap · Tiger Data' : ''}
+        </span>
       </div>
 
       {rows.length === 0 ? (
@@ -39,7 +65,18 @@ function Leaderboard({ history }) {
               >
                 {i + 1}
               </span>
-              <span className="truncate text-ink">{row.player}</span>
+              {photos.includes(row.player) ? (
+                <button
+                  type="button"
+                  onClick={() => setOpen(row.player)}
+                  className="truncate text-left text-ink underline decoration-claim decoration-2 underline-offset-4"
+                  title="See their face mid-question"
+                >
+                  {row.player} <span aria-hidden="true">📸</span>
+                </button>
+              ) : (
+                <span className="truncate text-ink">{row.player}</span>
+              )}
               <span className="text-right font-bold tabular-nums text-good">{row.bestGap}</span>
               <span className="text-right font-bold tabular-nums text-critical">
                 {row.worstGap}
@@ -49,6 +86,35 @@ function Leaderboard({ history }) {
           ))}
         </div>
       )}
+      {open && <PhotoModal player={open} onClose={() => setOpen(null)} />}
+    </div>
+  )
+}
+
+// The opt-in photo, served from the game's memory (GET /api/photo). Click or Esc closes it.
+function PhotoModal({ player, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div
+      className="anim-fade-in fixed inset-0 z-[60] flex items-center justify-center bg-void/85 p-8"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${player} mid-question`}
+      onClick={onClose}
+    >
+      <figure className="flex flex-col items-center gap-3 rounded-2xl border border-ink-faint/60 bg-surface p-5">
+        <img
+          src={`${API_BASE}/api/photo?player=${encodeURIComponent(player)}`}
+          alt={`${player}, 3 seconds into the interview question`}
+          className="max-h-[70vh] max-w-[80vw] rounded-xl"
+        />
+        <figcaption className="font-display text-title text-ink">{player}, mid-question</figcaption>
+        <p className="font-game text-meta text-ink-dim">Opt-in photo, on this laptop only. Click or Esc to close.</p>
+      </figure>
     </div>
   )
 }

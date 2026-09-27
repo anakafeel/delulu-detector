@@ -1,4 +1,4 @@
-"""The Tell's face rounds: webcam or video file, Haar face + smile detector, frame differencing.
+"""Hill's Kitchen's face rounds: webcam or video file, Haar face + smile detector, frame differencing.
 
 Fully local: OpenCV's built-in Haar cascades, no network, no external API.
 
@@ -710,7 +710,7 @@ class PreviewWindow:
     of crashing the round.
     """
 
-    TITLE = "The Tell - face round (preview)"
+    TITLE = "Hill's Kitchen - face round (preview)"
 
     def __init__(self, enabled: bool = True):
         self.enabled = enabled
@@ -899,7 +899,7 @@ class MockStraightCamera(FakeCamera):
 # ---------------------------------------------------------------------------
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(
-        description="Run The Tell's face measurements on a saved video clip or a webcam "
+        description="Run Hill's Kitchen's face measurements on a saved video clip or a webcam "
                     "(no Arduino, nothing saved). Prints the numbers per window.")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--video", metavar="PATH", help="video file to measure (.mp4, .avi, ...)")
