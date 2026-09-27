@@ -841,6 +841,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             if claim is not None:
                 measuring = (ui is not None and poker is not None
                              and claim["round_id"] == poker.round_id)
+                if measuring and args.name_entry and not ui.player_named():
+                    # The name comes first: no camera window for a claim locked before it.
+                    print("   (claim locked before a name was typed: not measured. Type a name, "
+                          "then press the button again.)")
+                    ui.round_rejected("Type your name first, then press the button again. Not scored.")
+                    continue
                 if measuring and args.name_entry:
                     player = ui.round_player()           # the name typed before this claim
                     print(f"   player: {player}")

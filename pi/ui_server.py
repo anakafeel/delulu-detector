@@ -448,6 +448,11 @@ class GameState:
             self._changed()
         return name
 
+    def player_named(self) -> bool:
+        """A name was typed for this player (and hasn't expired with the idle timeout)."""
+        with self._cond:
+            return bool(self.named_player) and not self._name_expired_locked()
+
     def round_player(self) -> str:
         """The name to log the round that is starting under (called when the claim locks)."""
         with self._cond:

@@ -540,6 +540,7 @@ def test_mock_round5_has_no_camera_feed(monkeypatch, tmp_path):
 
 
 def test_real_camera_round5_with_ui_streams_the_measured_frames(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui_server.GameState, "player_named", lambda self: True)   # name typed
     """--round 5 --ui on 'hardware': fake serial claim line + fake camera, real feed and server."""
     monkeypatch.setattr(config, "UI_CAMERA_IDLE_PREVIEW", False)
     monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)

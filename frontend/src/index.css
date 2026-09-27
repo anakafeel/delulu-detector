@@ -25,22 +25,19 @@
   --font-display: "Bungee", system-ui, sans-serif;
   --font-game: "JetBrains Mono", ui-monospace, monospace;
 
-  /* One type scale for the booth, read from 3-5 feet. Everything on screen uses one of these.
-     headline  the question and the verdict: the line a passerby reads across the table
-     stat      the big numbers (claim, composure, gap)
-     title     round name, phase, player name
-     data      labels and readouts under the numbers (claim / gap / score / composure)
-     meta      round number, counts, footnotes: smallest, still 16px or more */
-  --text-headline: clamp(2.25rem, 3.3vw, 4.25rem);
-  --text-headline--line-height: 1.12;
-  --text-stat: clamp(4.5rem, 7.5vw, 8.5rem);
+  /* Type scale. Only the question is booth-sized; everything else keeps the sizes the
+     screens had before (meta = text-sm, data = text-lg, title = text-3xl, stat = text-7xl).
+     question  the live interview question, in its own strip under the camera */
+  --text-question: clamp(1.5rem, 2.2vw, 2.5rem);
+  --text-question--line-height: 1.15;
+  --text-stat: 4.5rem;
   --text-stat--line-height: 1;
-  --text-title: clamp(1.75rem, 2.3vw, 3rem);
-  --text-title--line-height: 1.1;
-  --text-data: clamp(1.25rem, 1.45vw, 1.875rem);
-  --text-data--line-height: 1.25;
-  --text-meta: clamp(1rem, 1.05vw, 1.3rem);
-  --text-meta--line-height: 1.35;
+  --text-title: 1.875rem;
+  --text-title--line-height: 1.15;
+  --text-data: 1.125rem;
+  --text-data--line-height: 1.4;
+  --text-meta: 0.875rem;
+  --text-meta--line-height: 1.4;
 }
 
 html, body, #root {
@@ -201,7 +198,7 @@ body {
    glance from across the room is enough (white = who's playing, cyan = setting
    the claim, purple = the face is being read). */
 .phase-frame {
-  box-shadow: inset 0 0 0 8px var(--phase-color), inset 0 0 60px -10px var(--phase-color);
+  box-shadow: inset 0 0 0 4px var(--phase-color), inset 0 0 36px -12px var(--phase-color);
   transition: box-shadow 300ms ease;
 }
 

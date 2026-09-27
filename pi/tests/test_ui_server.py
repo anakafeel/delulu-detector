@@ -493,6 +493,7 @@ def test_main_without_ui_starts_no_server(monkeypatch, tmp_path):
 
 # ------------------------------------------------------------- Round 5 (Poker Face)
 def test_main_mock_poker_face_shows_claim_then_smile_result(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui_server.GameState, "player_named", lambda self: True)   # name typed
     monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
     monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
     monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
@@ -524,6 +525,7 @@ def test_main_mock_poker_face_shows_claim_then_smile_result(monkeypatch, tmp_pat
 
 
 def test_poker_vision_failure_reaches_the_ui_as_a_notice(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui_server.GameState, "player_named", lambda self: True)   # name typed
     monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
     monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
     monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
@@ -629,3 +631,39 @@ def test_typing_a_name_on_the_attract_screen_wakes_the_dial(clock):
     snap = s.snapshot()
     assert snap["screen"] == "predicting" and snap["player"] == "Bo"
     assert snap["activeRound"]["round_id"] == "poker_face"
+
+
+def test_poker_claim_before_a_name_is_refused_without_measuring(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "UI_MOCK_PAUSE_S", 0)
+    monkeypatch.setattr(config, "UI_MOCK_DIAL_STEP_S", 0)
+    monkeypatch.setattr(main, "deliver_verdict", lambda *a, **k: None)
+    monkeypatch.setattr(main, "linger_for_ui", lambda srv: None)
+    monkeypatch.setattr(main, "run_face_claim", lambda *a: pytest.fail("camera ran before a name"))
+    rejected = []
+    monkeypatch.setattr(ui_server.GameState, "round_rejected", lambda self, msg: rejected.append(msg))
+    db = tmp_path / "s.db"
+    assert main.main(["--mock", "--round", "5", "--rounds", "2", "--seed", "3", "--mock-delay", "0",
+                      "--no-audio", "--db", str(db), "--ui", "--ui-host", "127.0.0.1",
+                      "--ui-port", "0"]) == 0
+    assert len(rejected) == 2 and all("Type your name first" in m for m in rejected)
+    with SessionLog(db) as log:
+        assert log.rounds() == []
+
+
+def test_presage_sample_count_reaches_the_logged_extras():
+    import poker_round
+    from scoring import score_reading
+
+    class FakeSession:
+        last_sample_count = None
+
+        def finish(self):
+            self.last_sample_count = 41
+            return 62.5
+
+    reading = {"type": "result", "round_id": 5, "claim": 70.0, "actual": 10.0, "unit": "smile_pct",
+               "frames": 90, "fps": 15.0, "face_frac": 1.0}
+    reading = poker_round._apply_presage(FakeSession(), reading)
+    result = score_reading(reading)
+    assert result.actual == 62.5 and result.extra["presage_samples"] == 41
+    assert ui_server.result_from_round(result, "Ada", "s", 1)["extra"]["presage_samples"] == 41

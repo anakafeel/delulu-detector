@@ -13,7 +13,7 @@ const COMPOSURE_FOLLOW_MS = 300
 
 function ringSize() {
   const h = typeof window === 'undefined' ? 900 : window.innerHeight
-  return Math.round(Math.min(240, Math.max(150, h * 0.19)))
+  return Math.round(Math.min(168, Math.max(110, h * 0.16)))
 }
 
 // Covers both the 'predicting' (dial turning) and 'performing' (challenge
@@ -42,29 +42,33 @@ export default function ActiveRound({
     const reading = phase === 'read' || phase === 'scoring'
     const size = ringSize()
     const question = isPerforming && notice?.level === 'info' ? notice.message : null
-    const askName = !isPerforming && nameEntry
+    const needName = !isPerforming && nameEntry && !playerNamed
+    // Three regions that never overlap: the camera (left), the numbers (right), and the
+    // question strip (bottom, fixed height, so the video never resizes when it appears).
     return (
-      <div className="relative h-full w-full">
-        <CameraFeed camera={camera} isPerforming={isPerforming} />
-        {/* On top of the video: an inset shadow on the parent would paint under it. */}
-        <div
-          className={`phase-frame pointer-events-none absolute inset-0 z-10 rounded-2xl ${PHASES[phase].pulse ? 'quiet-pulse' : ''}`}
-          style={{ '--phase-color': PHASES[phase].color }}
-        />
-        {(scoring || windowClosed) && <ScoreBeat />}
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-6 p-6">
-          <div className="flex flex-col items-start gap-3 text-left">
-            <PhaseChip phase={phase} nameEntry={nameEntry} />
-            <p className="rounded-lg bg-void/70 px-3 py-1 font-display text-title text-ink">{player}</p>
-            <p className="rounded bg-void/70 px-3 py-0.5 font-game text-meta uppercase tracking-[0.3em] text-ink-dim">
-              {activeRound.label ? `Round ${activeRound.label} · ` : ''}
-              {activeRound.round_name}
-            </p>
-            {askName && playerNamed && (
-              <NameEntry entry={names} variant="compact" player={player} onHelp={onHelp} />
-            )}
-          </div>
-          <div className="flex items-start gap-5">
+      <div className="grid h-full w-full grid-cols-[1fr_auto] grid-rows-[1fr_auto] bg-void">
+        <div className="relative min-h-0 min-w-0 overflow-hidden bg-black">
+          {/* The camera only exists once the claim is locked: no feed on the name or dial steps. */}
+          {isPerforming ? (
+            <CameraFeed camera={camera} isPerforming={isPerforming} />
+          ) : (
+            <BeforeCamera needName={needName} names={names} onHelp={onHelp} />
+          )}
+          <div
+            className={`phase-frame pointer-events-none absolute inset-0 z-10 ${PHASES[phase].pulse ? 'quiet-pulse' : ''}`}
+            style={{ '--phase-color': PHASES[phase].color }}
+          />
+          {(scoring || windowClosed) && <ScoreBeat />}
+        </div>
+
+        <aside className="row-span-2 flex w-[clamp(11rem,16vw,15rem)] flex-col items-center gap-3 overflow-hidden border-l border-ink-faint/30 p-4 text-center">
+          <PhaseChip phase={phase} nameEntry={nameEntry} />
+          <p className="max-w-full truncate font-display text-2xl text-ink">{player}</p>
+          <p className="font-game text-meta uppercase tracking-[0.2em] text-ink-dim">
+            {activeRound.label ? `Round ${activeRound.label} · ` : ''}
+            {activeRound.round_name}
+          </p>
+          {!needName && (
             <Ring label="Claim" sub={isPerforming ? 'locked' : 'turn the dial'} color="var(--color-claim)">
               <Dial
                 size={size}
@@ -75,31 +79,31 @@ export default function ActiveRound({
                 claimMaxS={claimMaxS}
               />
             </Ring>
-            {reading && (
-              <Ring label="Composure" sub="live, so far" color="var(--color-reality)">
-                <ComposureRing size={size} value={camera?.composure} />
-              </Ring>
-            )}
-          </div>
+          )}
+          {reading && (
+            <Ring label="Composure" sub="live, so far" color="var(--color-reality)">
+              <ComposureRing size={size} value={camera?.composure} />
+            </Ring>
+          )}
+          {reading && <PresageLive camera={camera} />}
+        </aside>
+
+        <div className="flex h-32 min-w-0 items-center border-t border-ink-faint/30 px-6">
+          {question ? (
+            <QuestionStrip key={question} text={question} />
+          ) : isPerforming ? (
+            <p className="font-game text-data text-ink-dim">Look at the camera and keep a straight face.</p>
+          ) : needName ? (
+            <p className="font-game text-data text-ink">Type your name and press Enter. The dial and camera come next.</p>
+          ) : (
+            <div className="flex w-full flex-wrap items-center justify-between gap-3">
+              <p className="font-game text-data text-ink">
+                Turn the dial: how unreadable is your face? Press the button to lock it and start the camera.
+              </p>
+              {nameEntry && <NameEntry entry={names} variant="compact" player={player} onHelp={onHelp} />}
+            </div>
+          )}
         </div>
-        {askName && !playerNamed && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-24 z-30 flex justify-center">
-            <NameEntry
-              entry={names}
-              variant="prompt"
-              lead="Before the camera reads you: who's in the hot seat?"
-              onHelp={onHelp}
-            />
-          </div>
-        )}
-        {askName && playerNamed && (
-          <p className="pointer-events-none absolute inset-x-0 bottom-24 z-20 text-center">
-            <span className="rounded-xl bg-void/80 px-6 py-3 font-game text-data text-ink">
-              Turn the dial: how unreadable is your face? Press the button to lock it.
-            </span>
-          </p>
-        )}
-        {question && <QuestionCard key={question} text={question} />}
       </div>
     )
   }
@@ -145,11 +149,11 @@ function PhaseChip({ phase, nameEntry }) {
   return (
     <p
       key={phase}
-      className="anim-fade-in flex items-center gap-3 rounded-full border-4 bg-void/85 px-5 py-2 font-display text-data uppercase"
+      className="anim-fade-in flex items-center gap-2 rounded-full border-2 bg-void/85 px-3 py-1 font-display text-meta uppercase"
       style={{ borderColor: def.color, color: def.color }}
     >
-      {phase === 'read' && <span className="quiet-pulse inline-block h-4 w-4 rounded-full bg-critical" aria-hidden="true" />}
-      {def.pulse && <span className="quiet-pulse inline-block h-4 w-4 rounded-full" style={{ background: def.color }} aria-hidden="true" />}
+      {phase === 'read' && <span className="quiet-pulse inline-block h-2.5 w-2.5 rounded-full bg-critical" aria-hidden="true" />}
+      {def.pulse && <span className="quiet-pulse inline-block h-2.5 w-2.5 rounded-full" style={{ background: def.color }} aria-hidden="true" />}
       {step && <span className="text-ink-dim">{step.step}/{step.of}</span>}
       {def.label}
     </p>
@@ -216,22 +220,55 @@ function ComposureRing({ size, value }) {
   )
 }
 
-function QuestionCard({ text }) {
+// The live question, in its own strip under the camera. Long questions step down a size
+// and wrap to two lines instead of growing into the video.
+function QuestionStrip({ text }) {
+  const size = text.length > 70 ? 'text-2xl' : 'text-question'
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-20 z-20 flex justify-center px-6">
-      <div className="anim-fade-in-up w-[min(100%,72rem)] rounded-2xl border-l-8 border-claim bg-void/90 px-8 py-5 text-left">
-        <p className="font-game text-meta uppercase tracking-[0.35em] text-claim">The question</p>
-        <p className="mt-1 font-display text-headline text-ink">{text}</p>
-      </div>
+    <div className="anim-fade-in flex min-w-0 items-center gap-5">
+      <span className="shrink-0 border-l-8 border-claim pl-3 font-game text-meta uppercase tracking-[0.3em] text-claim">
+        Question
+      </span>
+      <p className={`line-clamp-2 font-display ${size} text-ink`}>{text}</p>
     </div>
+  )
+}
+
+// Before the claim locks there is no camera on screen, only the next step.
+function BeforeCamera({ needName, names, onHelp }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+      {needName ? (
+        <NameEntry entry={names} variant="prompt" lead="Before the camera reads you: who's in the hot seat?" onHelp={onHelp} />
+      ) : (
+        <>
+          <p className="font-display text-3xl text-ink">Camera is off</p>
+          <p className="font-game text-data text-ink-dim">It starts the moment you lock your claim with the button.</p>
+        </>
+      )}
+    </div>
+  )
+}
+
+// Shown only while Presage's numbers are actually arriving for this window.
+function PresageLive({ camera }) {
+  const live = camera?.mode === 'measuring' && typeof camera?.composure === 'number'
+  return (
+    <p className="flex items-center gap-2 font-game text-meta text-ink-dim">
+      <span
+        className={`inline-block h-2.5 w-2.5 rounded-full ${live ? 'quiet-pulse bg-reality' : 'bg-ink-faint'}`}
+        aria-hidden="true"
+      />
+      {live ? 'Presage SmartSpectra · live' : camera?.mode === 'measuring' ? 'Presage: waiting for first read' : 'Presage SmartSpectra'}
+    </p>
   )
 }
 
 function ScoreBeat() {
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-      <p className="anim-fade-in flex items-center gap-4 rounded-full border-4 border-reality bg-void/85 px-10 py-4 font-display text-title uppercase text-ink">
-        <span className="quiet-pulse inline-block h-5 w-5 rounded-full bg-reality" />
+      <p className="anim-fade-in flex items-center gap-3 rounded-full border-2 border-reality bg-void/85 px-7 py-3 font-game text-data uppercase tracking-[0.3em] text-ink">
+        <span className="quiet-pulse inline-block h-2.5 w-2.5 rounded-full bg-reality" />
         Scoring your face
       </p>
     </div>

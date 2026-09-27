@@ -109,8 +109,8 @@ function Notice({ notice, className }) {
 
 function CameraShell({ state, names, onHelp }) {
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-void p-6">
-      <div className="relative h-[88vh] w-[88vw] overflow-hidden rounded-2xl bg-black">
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-void p-8">
+      <div className="relative h-[82vh] w-[82vw] overflow-hidden rounded-2xl bg-black">
         <Stage state={state} names={names} onHelp={onHelp} />
       </div>
       {state.preview && <PreviewKeys />}

@@ -69,10 +69,11 @@ export default function RevealMoment({ result, history = [] }) {
           )}
         </div>
         <MathLine result={result} composure={composure} />
+        {composure && <PresageReadout result={result} />}
 
         {verdictText ? (
           <p
-            className="anim-stamp-in max-w-[min(64rem,100%)] px-4 font-display text-headline text-ink"
+            className="anim-stamp-in max-w-2xl px-4 font-display text-4xl leading-tight text-ink md:text-5xl"
             style={{ textShadow: `0 0 30px ${severity.color}` }}
           >
             {verdictText}
@@ -97,6 +98,24 @@ function MathLine({ result, composure }) {
   return (
     <p className="font-game text-meta tabular-nums text-ink-dim">
       gap = |{result.claim} claim − {fmt(result.actual_exact)} {reality}| = {fmt(result.gap_exact)} · score = 100 − gap
+    </p>
+  )
+}
+
+// Where the composure number came from, with the raw fields the Pi logged for this round:
+// how many expression samples Presage classified, and the camera frames it was fed (OpenCV).
+function PresageReadout({ result }) {
+  const x = result.extra ?? {}
+  const parts = []
+  if (typeof x.presage_samples === 'number') parts.push(`${x.presage_samples} expression samples classified`)
+  if (typeof x.frames === 'number') {
+    parts.push(`camera ${x.frames} frames${typeof x.fps === 'number' ? ` @ ${x.fps.toFixed(1)} fps` : ''}`)
+  }
+  if (result.db_id != null) parts.push(`log row #${result.db_id}`)
+  return (
+    <p className="rounded-md border border-reality/40 bg-void/70 px-3 py-1 font-game text-meta text-ink-dim">
+      <span className="text-reality">Composure read by Presage SmartSpectra</span>
+      {parts.length > 0 && <> · {parts.join(' · ')}</>}
     </p>
   )
 }

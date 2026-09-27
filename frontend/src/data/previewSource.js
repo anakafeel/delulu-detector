@@ -225,5 +225,6 @@ function row(round, type, id, player, claim, actual, gap, verdict, unit) {
     score: Math.max(0, Math.round(100 - gap)),
     verdict_text: verdict,
     verdict_status: 'ready',
+    extra: type === 1 ? {} : { presage_samples: 38, frames: 92, fps: 15.3 },
   }
 }
