@@ -10,36 +10,39 @@ export default function DeluluSvg({
     typeof window !== 'undefined' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-  // Whole-body reaction to verdict
+  // ---- Whole body reaction ----
   const bodyReact =
     {
-      validated:   { y: [0, -8, 0] },
+      validated:   { y: [0, -10, 0] },
       mild:        { rotate: [0, -2, 2, 0] },
-      spicy:       { x: [0, -6, 6, 0] },
-      delulu:      { x: [0, -10, 10, -6, 6, 0], rotate: [0, -3, 3, 0] },
-      false_start: { y: [0, -10, 0] },
+      spicy:       { x: [0, -8, 8, 0] },
+      delulu:      { x: [0, -14, 14, -8, 8, 0] },
+      false_start: { y: [0, -12, 0] },
       timeout:     { opacity: [1, 0.85, 1] },
     }[reaction] ?? {}
 
-  // Waving = gentle body sway (arm isn't a separate path in this SVG)
-  const waveAnim = isWaving && !reduce
-    ? { rotate: [-3, 3, -3], transition: { duration: 1.2, repeat: Infinity, ease: 'easeInOut' } }
-    : {}
+  // ---- Waving (body sway) ----
+  const waveAnim =
+    isWaving && !reduce
+      ? { rotate: [-3, 3, -3] }
+      : {}
 
-  // Head tilt (continuous, subtle)
-  const headAnim = reduce ? {} : { rotate: [-1, 1, -1] }
+  // ---- Head bob ----
+  const headAnim = reduce ? {} : { rotate: [-1.5, 1.5, -1.5], y: [0, -3, 0] }
 
-  // Eyes squint when smiling
-  const eyesAnim = isSmiling && !reduce
-    ? { scaleY: 0.5, transition: { duration: 0.3 } }
-    : { scaleY: 1 }
+  // ---- Eyes ----
+  const eyesAnim =
+    isSmiling && !reduce
+      ? { scaleY: 0.5 }
+      : { scaleY: 1 }
 
-  // Mouth: idle / smile (wider) / speak (open/close)
-  const mouthAnim = isSpeaking && !reduce
-    ? { scaleY: [1, 2, 1], transition: { duration: 0.35, repeat: Infinity, ease: 'easeInOut' } }
-    : isSmiling
-    ? { scaleY: 1.4, scaleX: 1.15, transition: { duration: 0.3 } }
-    : { scaleY: 1, scaleX: 1 }
+  // ---- Mouth ----
+  const mouthAnim =
+    isSpeaking && !reduce
+      ? { scaleY: [1, 2.2, 1] }
+      : isSmiling
+      ? { scaleY: 1.5, scaleX: 1.2 }
+      : { scaleY: 1, scaleX: 1 }
 
   return (
     <motion.svg
@@ -47,8 +50,11 @@ export default function DeluluSvg({
       xmlns="http://www.w3.org/2000/svg"
       className="h-full w-full object-contain"
       animate={reduce ? {} : { ...bodyReact, ...waveAnim }}
-      transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
-      style={{ transformOrigin: '50% 90%' }}
+      transition={{
+        duration: isWaving ? 1.2 : 1.4,
+        repeat: Infinity,
+        ease: 'easeInOut',
+      }}
     >
       <g id="Dude">
 
@@ -104,65 +110,15 @@ export default function DeluluSvg({
           </g>
         </g>
 
-        {/* ==================== HEAD ==================== */}
+        {/* ==================== HEAD (grouped for tilt) ==================== */}
         <motion.g
           id="Head"
-          style={{ transformOrigin: '250px 410px', transformBox: 'view-box' }}
-          animate={headAnim}
-          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+          animate={reduce ? {} : headAnim}
+          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+          style={{ transformOrigin: '250px 420px', transformBox: 'fill-box' }}
         >
+          {/* Hair / face / strokes */}
           <g id="Hair">
             <g id="Group_3">
               <path d="M420.21 282.216C418.239 276.412 415.712 268.942 409.103 265.555C406.048 263.999 402.188 263.333 400.772 260.001C399.772 257.668 400.772 255.336 400.772 254.447C400.772 254.447 400.8 242.59 397.995 229.455C393.275 207.462 381.334 190.579 381.334 190.579C368.366 172.251 352.093 163.643 339.681 157.256C329.684 152.091 299.805 137.235 259.151 140.595C247.433 141.567 208.418 144.788 178.622 173.917C165.82 186.441 158.739 199.77 156.407 204.463C152.158 212.96 145.91 225.817 145.299 243.339C144.799 257.64 148.27 268.665 150.853 276.662C157.323 296.6 163.432 297.461 167.514 315.538C170.18 327.34 170.263 338.892 170.291 343.307C170.319 353.665 169.208 359.691 170.291 371.076C171.068 379.351 171.429 383.489 173.068 387.737C178.538 401.955 192.589 408.758 200.837 412.729C217.776 420.921 233.16 421.06 242.49 421.06C259.762 421.06 272.091 417.283 286.92 412.729C292.002 411.174 315.022 403.927 342.458 387.737C360.841 376.88 373.142 366.772 381.334 359.969C396.996 346.973 402.994 339.503 406.326 334.977C411.713 327.646 417.6 319.482 420.21 307.208C421.627 300.654 423.57 292.129 420.21 282.216Z" fill="#AD806D"/>
-              <path d="M420.738 207.823C414.656 196.021 381.528 135.208 308.774 118.241C257.541 106.3 197.227 118.519 159.489 157.423C137.579 180.027 130.193 203.963 118.668 242.257C105.645 285.687 105.923 316.483 106.784 366.633C107.422 404.343 111.31 418.061 121.696 425.197C131.47 431.918 143.938 430.585 168.902 427.974C185.675 426.225 207.779 421.921 207.779 416.867C207.779 412.035 187.591 412.896 177.233 397.429C174.54 393.402 173.457 389.709 171.679 383.544C168.125 371.326 168.208 359.83 168.569 355.081C168.791 352.165 169.208 347.972 169.319 341.363C169.374 338.559 169.263 335.227 168.875 330.783C167.347 313.067 163.404 303.626 160.127 295.934C169.958 295.573 179.593 290.991 185.869 283.493C193.061 274.913 195.616 262.778 192.478 252.087C202.836 263.194 219.775 267.804 234.465 263.527C249.127 259.251 260.817 246.311 263.427 231.427C265.982 246.505 276.618 260.029 290.78 266.165C304.97 272.302 322.242 270.886 335.182 262.528C341.763 277.884 348.317 293.24 354.898 308.596C354.537 307.291 349.483 287.714 363.229 272.497C366.783 268.554 371.087 265.499 375.78 263.389C386.193 261.223 394.746 257.779 404.882 264.166C419.544 273.413 421.404 293.073 421.543 294.712C423.126 314.067 410.325 328.812 396.551 344.696C382.778 360.579 368.949 370.243 357.675 378.018C327.407 398.873 309.357 403.093 310.468 408.564C312.301 417.506 362.146 413.312 364.7 413.09C386.582 411.258 398.967 410.48 409.492 401.899C424.209 389.903 427.791 371.881 430.012 351.527C437.566 282.438 441.342 247.894 420.682 207.823H420.738Z" fill="black"/>
-              <g id="stroke">
-                <path d="M380.972 282.91C380.333 296.545 382.777 310.29 388.053 322.869" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M383.945 306.958L394.053 298.016" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M156.823 295.823C168.014 296.85 179.566 292.018 186.703 283.382C193.867 274.718 196.394 262.472 193.312 251.698C203.642 262.889 220.525 267.554 235.132 263.25C249.738 258.946 261.401 245.866 264.011 230.871C266.538 246.089 277.146 259.723 291.28 265.916C305.415 272.108 322.604 270.692 335.516 262.25" stroke="black" strokeWidth="3.72102" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M338.237 390.681C366.673 374.297 398.551 351.638 414.102 321.787C421.488 307.569 423.626 290.991 417.378 275.94C410.936 260.473 392.747 257.502 378.446 263.472C357.509 272.219 350.705 295.739 359.342 315.9" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M164.571 312.817C172.735 331.478 170.264 348.75 169.875 369.493C169.653 381.934 172.291 392.847 181.705 400.955C202.059 418.505 234.299 422.087 259.818 419.061C280.117 416.645 299.722 410.036 318.133 401.261" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M176.26 425.198C169.068 427.558 134.884 438.082 116.696 420.921C107.088 411.841 105.949 398.928 106.755 369.438C108.615 303.265 111.086 270.22 118.639 245.061C130.136 206.74 137.522 182.831 159.46 160.227C197.198 121.323 257.511 109.105 308.745 121.046C381.499 138.012 414.627 198.826 420.709 210.628C440.091 248.171 436.759 283.549 430.039 354.332C428.623 369.243 425.874 387.987 411.851 398.9C403.381 405.482 392.246 408.092 384.082 410.008C371.641 412.924 360.923 413.146 353.536 412.785" stroke="black" strokeWidth="3.72102" strokeLinecap="round" strokeLinejoin="round"/>
-              </g>
-            </g>
-          </g>
-
-          {/* EYES — squint when smiling */}
-          <motion.g
-            id="Eyes"
-            style={{ transformOrigin: '216px 325px', transformBox: 'view-box' }}
-            animate={reduce ? {} : eyesAnim}
-          >
-            <path d="M192.461 319.207C189.6 318.707 186.796 321.928 187.712 324.705C188.628 327.482 192.822 328.398 194.821 326.26" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M240.223 316.708C237.029 317.319 235.336 321.734 237.307 324.316C239.279 326.899 243.999 326.399 245.388 323.456" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M192.655 318.013C188.906 314.736 183.214 313.875 178.659 315.93" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M233.919 315.403C240.667 313.098 248.248 313.264 254.885 315.875" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M233.921 315.403C240.668 313.098 248.249 313.264 254.886 315.875" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M181.02 333.508L178.632 335.896" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M187.711 334.924V338.728" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M194.377 334.924L196.293 337.784" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M233.921 332.064L232.505 334.924" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M242.501 332.064L243.445 335.396" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M248.694 331.12L251.555 333.036" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-          </motion.g>
-
-          {/* BROWS */}
-          <g id="Brow">
-            <path d="M203.236 301.069C196.876 301.514 190.545 301.958 184.186 302.402" stroke="black" strokeWidth="7.46981" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M253.051 299.903C246.637 300.014 240.194 300.125 233.78 300.236" stroke="black" strokeWidth="7.46981" strokeLinecap="round" strokeLinejoin="round"/>
-          </g>
-
-          {/* MOUTH — speak/smile/idle */}
-          <motion.g
-            id="Mouth"
-            style={{ transformOrigin: '216px 353px', transformBox: 'view-box' }}
-            animate={mouthAnim}
-          >
-            <path d="M204.65 343.461C201.012 348.209 207.594 363.593 215.841 363.982C224.505 364.371 232.28 348.154 228.892 343.461C227.67 341.739 224.338 341.684 217.701 341.6C210.037 341.489 206.205 341.434 204.65 343.461Z" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M210.23 360.261C210.675 355.818 213.674 352.125 217.7 350.931C222.587 349.514 226.586 352.458 227.03 352.791" stroke="black" strokeWidth="3.52664" strokeLinecap="round" strokeLinejoin="round"/>
-          </motion.g>
-        </motion.g>
-
-      </g>
-    </motion.svg>
-  )
-}
+              <path d="M420.738 207.823C414.656 196.021 381.528 135.208 308.774 118.241C257.541 106.3 197.227 118.519 159.489 157.423C137.579 180.027 130.193 203.963 118.668 242.257C105.645 285.687 105.923 316.483 106.784 366.633C107.422 404.343 111.31 418.061 121.696 425.197C131.47 431.918 143.938 430.585 168.902 427.974C185.675 426.225 207.779 421.921 207.779 416.867C207.779 412.035 187.591 412.896 177.233 397.429C174.54 393.402 173.457 389.709 171.679 383.544C168.125 371.326 168.208 359.83 168.569 355.081C168.791 352.165 169.
