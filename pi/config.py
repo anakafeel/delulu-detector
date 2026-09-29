@@ -51,8 +51,7 @@ REFLEX_SLOW_MS = 600   # this slow or slower = 0 (linear in between, clamped)
 # The Arduino reports the RMS of each accelerometer sample's deviation from the
 # 5 s window's mean vector, in mg (gravity and orientation drop out).
 # Calibrated on hardware 2026-09-26 (Grove LIS3DHTR at 0x19, +-2 g high-res, 100 Hz)
-# with `python pi/main.py --round 2 --calibrate`; raw output is in
-# docs/calibration/round2-2026-09-26.md. One session, one player:
+# with `python pi/main.py --round 2 --calibrate`. One session, one player:
 #    sensor lying on the table (incl. the button press)  ~21 mg RMS
 #    held as still as possible in the hand               ~68 mg RMS
 #    shaken hard                                        ~1494 mg RMS

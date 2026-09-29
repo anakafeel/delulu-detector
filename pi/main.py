@@ -422,7 +422,7 @@ class _MockDial:
 def _mock_steady_lines(rounds: int, seed: Optional[int], delay_s: float,
                        dial_step_s: Optional[float] = None) -> Iterator[str]:
     rng = random.Random(seed)
-    # A real hand measured about 68 mg RMS steady and far more when shaky (docs/calibration);
+    # A real hand measured about 68 mg RMS steady and far more when shaky;
     # stay above STEADY_REST_MG so mock holds aren't rejected as 'set down on the table'.
     true_mg = rng.uniform(45, 250)                  # this player's real tremor, mg RMS
     overconfidence = rng.uniform(35, 55)
