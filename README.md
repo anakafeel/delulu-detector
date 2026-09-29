@@ -12,7 +12,7 @@ Turn a dial from 0 to 100 for how unreadable you think you will look. A webcam a
 
 https://github.com/user-attachments/assets/0c7d0bfa-c6e2-439c-b1c3-08c3ee1eee85
 
-anakafeel's Poker Face round: claim 68, composure 0, gap 68. About 20 seconds. The clip is in the repo at [`brag-output/brag.mp4`](brag-output/brag.mp4).
+anakafeel's Poker Face round: claim 68, composure 0, gap 68. About 19 seconds, cut from the live booth recording. The clip is in the repo at [`brag-output/brag.mp4`](brag-output/brag.mp4).
 
 > We are not claiming this lands you the interview. Your face leaks signals you don't control and can't predict. Seeing that live is funny and a little uncomfortable.
 
